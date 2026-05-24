@@ -21,10 +21,20 @@ export default function Layout() {
   const title = pageTitles[path] || 'MicroLend';
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar title={title} />
+    <div className="flex h-screen overflow-hidden bg-gray-50">
+      {/* Sidebar — fixed, never scrolls */}
+      <div className="flex-shrink-0 h-screen overflow-y-auto">
+        <Sidebar />
+      </div>
+
+      {/* Right side — topbar fixed + scrollable content */}
+      <div className="flex flex-col flex-1 min-w-0 h-screen overflow-hidden">
+        {/* TopBar stays fixed at top */}
+        <div className="flex-shrink-0">
+          <TopBar title={title} />
+        </div>
+
+        {/* Main content scrolls independently */}
         <main className="flex-1 overflow-y-auto p-5">
           <Outlet />
         </main>

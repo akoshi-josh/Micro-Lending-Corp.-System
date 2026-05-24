@@ -32,4 +32,19 @@ router.get('/categories', verifyToken, async (req, res) => {
   }
 });
 
+// POST /api/expenses/categories
+router.post('/categories', verifyToken, async (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name is required.' });
+  try {
+    const result = await pool.query(
+      'INSERT INTO expense_categories (name) VALUES ($1) RETURNING *',
+      [name]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Category may already exist.' });
+  }
+});
+
 module.exports = router;
