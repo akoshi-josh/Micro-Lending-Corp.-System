@@ -78,45 +78,53 @@ router.post('/', verifyToken, async (req, res) => {
     const loan = loanResult.rows[0];
     const loanId = loan.id;
 
-    // Calculate monthly payment
-    const monthly = (parseFloat(loan_amount) / parseInt(term_months)) +
-      (parseFloat(loan_amount) * parseFloat(interest_rate) / 100);
+// Flat interest for whole term
+const totalInterest = parseFloat(loan_amount) * (parseFloat(interest_rate) / 100);
+const totalAmount = parseFloat(loan_amount) + totalInterest;
+const monthly = totalAmount / parseInt(term_months);
 
-    // Generate payment schedule
-    const scheduleEntries = [];
-    const releaseDate = new Date(release_date);
+// Generate payment schedule
+const scheduleEntries = [];
+const releaseDate = new Date(release_date);
 
-    if (payment_frequency === 'monthly') {
-      for (let i = 1; i <= term_months; i++) {
-        const dueDate = new Date(releaseDate);
-        dueDate.setMonth(dueDate.getMonth() + i);
-        scheduleEntries.push({ due_date: dueDate, amount_due: monthly });
-      }
-    } else if (payment_frequency === 'semi_monthly') {
-      const perPeriod = monthly / 2;
-      const totalPeriods = term_months * 2;
-      for (let i = 1; i <= totalPeriods; i++) {
-        const dueDate = new Date(releaseDate);
-        dueDate.setDate(dueDate.getDate() + (i * 15));
-        scheduleEntries.push({ due_date: dueDate, amount_due: perPeriod });
-      }
-    } else if (payment_frequency === 'weekly') {
-      const perPeriod = monthly / 4;
-      const totalPeriods = term_months * 4;
-      for (let i = 1; i <= totalPeriods; i++) {
-        const dueDate = new Date(releaseDate);
-        dueDate.setDate(dueDate.getDate() + (i * 7));
-        scheduleEntries.push({ due_date: dueDate, amount_due: perPeriod });
-      }
-    }
+let perPeriod = monthly;
+let totalPeriods = parseInt(term_months);
 
-    for (const entry of scheduleEntries) {
-      await client.query(
-        `INSERT INTO payment_schedule (loan_id, due_date, amount_due, status)
-         VALUES ($1, $2, $3, 'pending')`,
-        [loanId, entry.due_date, entry.amount_due.toFixed(2)]
-      );
-    }
+if (payment_frequency === 'semi_monthly') {
+  perPeriod = monthly / 2;
+  totalPeriods = parseInt(term_months) * 2;
+} else if (payment_frequency === 'weekly') {
+  perPeriod = monthly / 4;
+  totalPeriods = parseInt(term_months) * 4;
+}
+
+// Round down to 2 decimals, adjust last payment
+const roundedPerPeriod = Math.floor(perPeriod * 100) / 100;
+const regularTotal = roundedPerPeriod * (totalPeriods - 1);
+const lastPayment = (totalAmount - regularTotal).toFixed(2);
+
+for (let i = 1; i <= totalPeriods; i++) {
+  const dueDate = new Date(releaseDate);
+  const amountDue = i === totalPeriods ? lastPayment : roundedPerPeriod.toFixed(2);
+
+  if (payment_frequency === 'monthly') {
+    dueDate.setMonth(dueDate.getMonth() + i);
+  } else if (payment_frequency === 'semi_monthly') {
+    dueDate.setDate(dueDate.getDate() + (i * 15));
+  } else if (payment_frequency === 'weekly') {
+    dueDate.setDate(dueDate.getDate() + (i * 7));
+  }
+
+  scheduleEntries.push({ due_date: dueDate, amount_due: amountDue });
+}
+
+for (const entry of scheduleEntries) {
+  await client.query(
+    `INSERT INTO payment_schedule (loan_id, due_date, amount_due, status)
+     VALUES ($1, $2, $3, 'pending')`,
+    [loanId, entry.due_date, entry.amount_due]
+  );
+}
 
     await client.query('COMMIT');
     res.status(201).json({ loan, schedule: scheduleEntries });

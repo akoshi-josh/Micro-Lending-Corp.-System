@@ -5,9 +5,10 @@ export const computeSchedule = (amount, rate, frequency, termMonths) => {
 
   if (!principal || !months) return null;
 
-  const monthlyPayment = (principal / months) + (principal * interestRate / 100);
-  const totalInterest = principal * interestRate / 100 * months;
+  // Flat interest for the whole term
+  const totalInterest = principal * (interestRate / 100);
   const totalAmount = principal + totalInterest;
+  const monthlyPayment = totalAmount / months;
 
   let perPeriod = monthlyPayment;
   let totalPeriods = months;
@@ -23,21 +24,32 @@ export const computeSchedule = (amount, rate, frequency, termMonths) => {
     intervalLabel = 'Week';
   }
 
+  // Round per period to 2 decimal places
+  const roundedPerPeriod = Math.floor(perPeriod * 100) / 100;
+
+  // Calculate what the last payment should be to make total exact
+  const regularTotal = roundedPerPeriod * (totalPeriods - 1);
+  const lastPayment = (totalAmount - regularTotal).toFixed(2);
+
   const schedule = [];
   for (let i = 1; i <= totalPeriods; i++) {
     schedule.push({
       period: i,
       label: `${intervalLabel} ${i}`,
-      amount_due: perPeriod.toFixed(2)
+      // Last payment adjusted to make total exact
+      amount_due: i === totalPeriods
+        ? lastPayment
+        : roundedPerPeriod.toFixed(2)
     });
   }
 
   return {
     monthlyPayment,
-    perPeriod,
+    perPeriod: roundedPerPeriod,
     totalInterest,
     totalAmount,
     totalPeriods,
+    lastPayment,
     schedule
   };
 };

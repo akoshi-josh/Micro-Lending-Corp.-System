@@ -45,16 +45,31 @@ export default function NewLoan() {
     payment_frequency: 'monthly',
     term_months: '6',
     purpose: '',
+    // Amortization
     amortization_no: '',
     amortization_mode: '',
+    amortization_amount: '',
     matured: '',
     start_date: '',
-    // Signatures
+    // Receipt
+    received_amount: '',
+    applicant_signature: '',
     recommended_by: '',
-    approved_by: '',
+    co_maker_signature: '',
+    approve: '',
+    received_by: '',
+    copy_received: '',
+    ci_collector: '',
+    manager: 'Mila J. Aranguiz',
+    // Account entries
+    account_title_0: '', debit_0: '', credit_0: '',
+    account_title_1: '', debit_1: '', credit_1: '',
+    account_title_2: '', debit_2: '', credit_2: '',
+    // Signatures
+    prepared_by: '',
     verified_by: '',
     entered_by: '',
-    prepared_by: '',
+    approved_by: '',
   });
 
   const [schedule, setSchedule] = useState(null);
@@ -70,6 +85,14 @@ export default function NewLoan() {
         form.payment_frequency, form.term_months
       );
       setSchedule(result);
+      // Auto-fill amortization amount and received amount
+      if (result) {
+        setForm(f => ({
+          ...f,
+          amortization_amount: result.perPeriod.toFixed(2),
+          received_amount: result.totalAmount.toFixed(2),
+        }));
+      }
     }
   }, [form.loan_amount, form.interest_rate, form.payment_frequency, form.term_months]);
 
@@ -100,6 +123,22 @@ export default function NewLoan() {
           address: form.permanent_address,
           id_type: form.id_type,
           id_number: form.id_number,
+          age: form.age,
+          sex: form.sex,
+          civil_status: form.civil_status,
+          date_of_birth: form.date_of_birth || null,
+          place_of_birth: form.place_of_birth,
+          sss_id_number: form.sss_id_number,
+          spouse_name: form.spouse_name,
+          spouse_dob: form.spouse_dob || null,
+          spouse_sss: form.spouse_sss,
+          co_maker: form.co_maker,
+          relationship_to_borrower: form.relationship_to_borrower,
+          type_of_pension: form.type_of_pension,
+          bus_address: form.bus_address,
+          bank: form.bank,
+          acct_number: form.acct_number,
+          pin: form.pin,
         });
         borrower_id = b.data.id;
       }
@@ -122,48 +161,74 @@ export default function NewLoan() {
     }
   };
 
-  const netProceeds = (parseFloat(form.loan_amount) || 0) - (parseFloat(form.less_charge) || 0);
+  const netProceeds = (parseFloat(form.loan_amount) || 0) -
+    (parseFloat(form.less_charge) || 0);
 
   return (
     <div className="max-w-5xl mx-auto">
-      {/* Header */}
+
+      {/* ── HEADER ── */}
       <div className="bg-white border border-gray-200 rounded-xl p-6 mb-4 shadow-sm text-center">
-        <div className="text-lg font-bold text-gray-800">L.A. and M.J. Micro Lending Corporation</div>
-        <div className="text-sm text-gray-500">APPLICATION FORM / LOAN VOUCHER</div>
-        <div className="flex justify-between mt-3 text-sm">
+        <div className="text-lg font-bold text-gray-800">
+          L.A. and M.J. Micro Lending Corporation
+        </div>
+        <div className="text-sm text-gray-500 mt-0.5">
+          P-5, Pob 1 (Agay), R.T. Romualdez · Tel No.
+        </div>
+        <div className="text-base font-bold text-gray-700 mt-1">
+          APPLICATION FORM / LOAN VOUCHER
+        </div>
+        <div className="flex justify-between mt-4 text-sm">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-gray-600">CAV #:</span>
-            <input className="border-b border-gray-400 outline-none w-32 text-sm px-1"
-              value={form.cav_number} onChange={e => set('cav_number', e.target.value)} />
+            <input
+              className="border-b-2 border-gray-400 outline-none w-32 text-sm px-1 py-0.5"
+              value={form.cav_number}
+              onChange={e => set('cav_number', e.target.value)}
+            />
           </div>
           <div className="flex items-center gap-2">
             <span className="font-semibold text-gray-600">Date:</span>
-            <input type="date" className="border-b border-gray-400 outline-none text-sm px-1"
-              value={form.release_date} onChange={e => set('release_date', e.target.value)} />
+            <input
+              type="date"
+              className="border-b-2 border-gray-400 outline-none text-sm px-1 py-0.5"
+              value={form.release_date}
+              onChange={e => set('release_date', e.target.value)}
+            />
           </div>
         </div>
       </div>
 
-      {/* Borrower Toggle */}
+      {/* ── BORROWER TOGGLE ── */}
       <div className="bg-white border border-gray-200 rounded-xl p-5 mb-4 shadow-sm">
         <div className="flex gap-4 mb-4">
           <button
             onClick={() => setIsNewBorrower(true)}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-all ${isNewBorrower ? 'bg-blue-700 text-white border-blue-700' : 'bg-white text-gray-600 border-gray-300'}`}
+            className={`px-5 py-2.5 rounded-lg text-sm font-semibold border transition-all ${
+              isNewBorrower
+                ? 'bg-blue-700 text-white border-blue-700'
+                : 'bg-white text-gray-600 border-gray-300'
+            }`}
           >
             New Borrower
           </button>
           <button
             onClick={() => setIsNewBorrower(false)}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-all ${!isNewBorrower ? 'bg-blue-700 text-white border-blue-700' : 'bg-white text-gray-600 border-gray-300'}`}
+            className={`px-5 py-2.5 rounded-lg text-sm font-semibold border transition-all ${
+              !isNewBorrower
+                ? 'bg-blue-700 text-white border-blue-700'
+                : 'bg-white text-gray-600 border-gray-300'
+            }`}
           >
             Existing Borrower
           </button>
         </div>
 
         {!isNewBorrower && (
-          <div className="mb-4">
-            <label className="block text-sm font-semibold text-gray-600 mb-1">Select Borrower</label>
+          <div>
+            <label className="block text-sm font-semibold text-gray-600 mb-1">
+              Select Borrower
+            </label>
             <select
               className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
               value={form.borrower_id}
@@ -174,12 +239,14 @@ export default function NewLoan() {
                 <option key={b.id} value={b.id}>{b.full_name}</option>
               ))}
             </select>
-            {errors.borrower_id && <p className="text-red-500 text-xs mt-1">{errors.borrower_id}</p>}
+            {errors.borrower_id && (
+              <p className="text-red-500 text-xs mt-1">{errors.borrower_id}</p>
+            )}
           </div>
         )}
       </div>
 
-      {/* Personal Information */}
+      {/* ── PERSONAL INFORMATION ── */}
       {isNewBorrower && (
         <div className="bg-white border border-gray-200 rounded-xl p-5 mb-4 shadow-sm">
           <div className="text-base font-bold text-gray-700 mb-4 pb-2 border-b border-gray-200">
@@ -188,26 +255,41 @@ export default function NewLoan() {
           <div className="grid grid-cols-3 gap-4">
             <div className="col-span-2">
               <label className="block text-xs font-semibold text-gray-500 mb-1">Name</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.full_name} onChange={e => set('full_name', e.target.value)}
-                placeholder="Full Name" />
-              {errors.full_name && <p className="text-red-500 text-xs mt-1">{errors.full_name}</p>}
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.full_name}
+                onChange={e => set('full_name', e.target.value)}
+                placeholder="Full Name"
+              />
+              {errors.full_name && (
+                <p className="text-red-500 text-xs mt-1">{errors.full_name}</p>
+              )}
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1">Tel. #</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.contact_number} onChange={e => set('contact_number', e.target.value)}
-                placeholder="Contact Number" />
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.contact_number}
+                onChange={e => set('contact_number', e.target.value)}
+                placeholder="Contact Number"
+              />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1">Age</label>
-              <input type="number" className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.age} onChange={e => set('age', e.target.value)} />
+              <input
+                type="number"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.age}
+                onChange={e => set('age', e.target.value)}
+              />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1">Sex</label>
-              <select className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.sex} onChange={e => set('sex', e.target.value)}>
+              <select
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.sex}
+                onChange={e => set('sex', e.target.value)}
+              >
                 <option value="">Select</option>
                 <option>Male</option>
                 <option>Female</option>
@@ -215,8 +297,11 @@ export default function NewLoan() {
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1">Civil Status</label>
-              <select className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.civil_status} onChange={e => set('civil_status', e.target.value)}>
+              <select
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.civil_status}
+                onChange={e => set('civil_status', e.target.value)}
+              >
                 <option value="">Select</option>
                 <option>Single</option>
                 <option>Married</option>
@@ -225,184 +310,285 @@ export default function NewLoan() {
               </select>
             </div>
             <div className="col-span-2">
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Permanent Re. Address</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.permanent_address} onChange={e => set('permanent_address', e.target.value)}
-                placeholder="Permanent Address" />
+              <label className="block text-xs font-semibold text-gray-500 mb-1">
+                Permanent Re. Address
+              </label>
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.permanent_address}
+                onChange={e => set('permanent_address', e.target.value)}
+                placeholder="Permanent Address"
+              />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1">Bus. Address</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.bus_address} onChange={e => set('bus_address', e.target.value)} />
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.bus_address}
+                onChange={e => set('bus_address', e.target.value)}
+              />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1">Date of Birth</label>
-              <input type="date" className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.date_of_birth} onChange={e => set('date_of_birth', e.target.value)} />
+              <input
+                type="date"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.date_of_birth}
+                onChange={e => set('date_of_birth', e.target.value)}
+              />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1">Place of Birth</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.place_of_birth} onChange={e => set('place_of_birth', e.target.value)} />
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.place_of_birth}
+                onChange={e => set('place_of_birth', e.target.value)}
+              />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1">SSS ID No.</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.sss_id_number} onChange={e => set('sss_id_number', e.target.value)} />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Name of Spouse</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.spouse_name} onChange={e => set('spouse_name', e.target.value)} />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Spouse Date of Birth</label>
-              <input type="date" className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.spouse_dob} onChange={e => set('spouse_dob', e.target.value)} />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Spouse SSS ID No.</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.spouse_sss} onChange={e => set('spouse_sss', e.target.value)} />
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.sss_id_number}
+                onChange={e => set('sss_id_number', e.target.value)}
+              />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1">Co-Maker</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.co_maker} onChange={e => set('co_maker', e.target.value)} />
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.co_maker}
+                onChange={e => set('co_maker', e.target.value)}
+              />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Relationship to Borrower</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.relationship_to_borrower} onChange={e => set('relationship_to_borrower', e.target.value)} />
+              <label className="block text-xs font-semibold text-gray-500 mb-1">
+                Relationship to Borrower
+              </label>
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.relationship_to_borrower}
+                onChange={e => set('relationship_to_borrower', e.target.value)}
+              />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Type of Pension/Salary</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.type_of_pension} onChange={e => set('type_of_pension', e.target.value)} />
+              <label className="block text-xs font-semibold text-gray-500 mb-1">
+                Type of Pension/Salary
+              </label>
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.type_of_pension}
+                onChange={e => set('type_of_pension', e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Name of Spouse</label>
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.spouse_name}
+                onChange={e => set('spouse_name', e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">
+                Spouse Date of Birth
+              </label>
+              <input
+                type="date"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.spouse_dob}
+                onChange={e => set('spouse_dob', e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">
+                Spouse SSS ID No.
+              </label>
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.spouse_sss}
+                onChange={e => set('spouse_sss', e.target.value)}
+              />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1">Bank</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.bank} onChange={e => set('bank', e.target.value)} />
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.bank}
+                onChange={e => set('bank', e.target.value)}
+              />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1">Acct. No.</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.acct_number} onChange={e => set('acct_number', e.target.value)} />
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.acct_number}
+                onChange={e => set('acct_number', e.target.value)}
+              />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1">PIN #</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.pin} onChange={e => set('pin', e.target.value)} />
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.pin}
+                onChange={e => set('pin', e.target.value)}
+              />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1">ID Type</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.id_type} onChange={e => set('id_type', e.target.value)}
-                placeholder="e.g. PhilSys, Driver's License" />
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.id_type}
+                onChange={e => set('id_type', e.target.value)}
+                placeholder="e.g. PhilSys, Driver's License"
+              />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1">ID Number</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                value={form.id_number} onChange={e => set('id_number', e.target.value)} />
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                value={form.id_number}
+                onChange={e => set('id_number', e.target.value)}
+              />
             </div>
           </div>
         </div>
       )}
 
-      {/* Loan Details */}
+      {/* ── LOAN DETAILS ── */}
       <div className="bg-white border border-gray-200 rounded-xl p-5 mb-4 shadow-sm">
         <div className="text-base font-bold text-gray-700 mb-4 pb-2 border-b border-gray-200">
           Loan Details
         </div>
         <div className="grid grid-cols-3 gap-4">
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Amount Applied (₱)</label>
-            <input type="number" className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-              value={form.loan_amount} onChange={e => set('loan_amount', e.target.value)}
-              placeholder="0.00" />
-            {errors.loan_amount && <p className="text-red-500 text-xs mt-1">{errors.loan_amount}</p>}
+            <label className="block text-xs font-semibold text-gray-500 mb-1">
+              Amount Applied (₱)
+            </label>
+            <input
+              type="number"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              value={form.loan_amount}
+              onChange={e => set('loan_amount', e.target.value)}
+              placeholder="0.00"
+            />
+            {errors.loan_amount && (
+              <p className="text-red-500 text-xs mt-1">{errors.loan_amount}</p>
+            )}
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Less Charge (₱)</label>
-            <input type="number" className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-              value={form.less_charge} onChange={e => set('less_charge', e.target.value)}
-              placeholder="0.00" />
+            <label className="block text-xs font-semibold text-gray-500 mb-1">
+              Less Charge (₱)
+            </label>
+            <input
+              type="number"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              value={form.less_charge}
+              onChange={e => set('less_charge', e.target.value)}
+              placeholder="0.00"
+            />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Net Proceeds (₱)</label>
-            <input readOnly className="w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2.5 text-sm font-bold text-blue-700"
-              value={netProceeds.toFixed(2)} />
+            <label className="block text-xs font-semibold text-gray-500 mb-1">
+              Interest (₱)
+            </label>
+            <input
+              readOnly
+              className="w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2.5 text-sm font-bold text-purple-700"
+              value={schedule ? schedule.totalInterest.toFixed(2) : '0.00'}
+            />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Interest Rate (%)</label>
-            <input type="number" className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-              value={form.interest_rate} onChange={e => set('interest_rate', e.target.value)} />
-            {errors.interest_rate && <p className="text-red-500 text-xs mt-1">{errors.interest_rate}</p>}
+            <label className="block text-xs font-semibold text-gray-500 mb-1">
+              Net Proceeds (₱)
+            </label>
+            <input
+              readOnly
+              className="w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2.5 text-sm font-bold text-blue-700"
+              value={netProceeds.toFixed(2)}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">
+              Interest Rate (%)
+            </label>
+            <input
+              type="number"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              value={form.interest_rate}
+              onChange={e => set('interest_rate', e.target.value)}
+            />
+            {errors.interest_rate && (
+              <p className="text-red-500 text-xs mt-1">{errors.interest_rate}</p>
+            )}
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1">Term (Months)</label>
-            <input type="number" className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-              value={form.term_months} onChange={e => set('term_months', e.target.value)} />
-            {errors.term_months && <p className="text-red-500 text-xs mt-1">{errors.term_months}</p>}
+            <input
+              type="number"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              value={form.term_months}
+              onChange={e => set('term_months', e.target.value)}
+            />
+            {errors.term_months && (
+              <p className="text-red-500 text-xs mt-1">{errors.term_months}</p>
+            )}
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Payment Frequency</label>
-            <select className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-              value={form.payment_frequency} onChange={e => set('payment_frequency', e.target.value)}>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">
+              Payment Frequency
+            </label>
+            <select
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              value={form.payment_frequency}
+              onChange={e => set('payment_frequency', e.target.value)}
+            >
               <option value="weekly">Weekly</option>
               <option value="semi_monthly">Semi-Monthly</option>
               <option value="monthly">Monthly</option>
             </select>
           </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Amortization No.</label>
-            <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-              value={form.amortization_no} onChange={e => set('amortization_no', e.target.value)} />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Mode</label>
-            <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-              value={form.amortization_mode} onChange={e => set('amortization_mode', e.target.value)} />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Matured</label>
-            <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-              value={form.matured} onChange={e => set('matured', e.target.value)} />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Start Date</label>
-            <input type="date" className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-              value={form.start_date} onChange={e => set('start_date', e.target.value)} />
-          </div>
           <div className="col-span-2">
             <label className="block text-xs font-semibold text-gray-500 mb-1">Purpose</label>
-            <input className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-              value={form.purpose} onChange={e => set('purpose', e.target.value)}
-              placeholder="Purpose of loan" />
+            <input
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              value={form.purpose}
+              onChange={e => set('purpose', e.target.value)}
+              placeholder="Purpose of loan"
+            />
           </div>
         </div>
 
-        {/* Live Calculator */}
+        {/* Payment Schedule Preview */}
         {schedule && (
           <div className="mt-5 bg-blue-50 border border-blue-200 rounded-xl p-4">
-            <div className="text-sm font-bold text-blue-700 mb-3">📊 Payment Schedule Preview</div>
+            <div className="text-sm font-bold text-blue-700 mb-3">
+              📊 Payment Schedule Preview
+            </div>
             <div className="grid grid-cols-4 gap-3 mb-4">
               <div className="bg-white rounded-lg p-3 border border-blue-100 text-center">
                 <div className="text-xs text-gray-500">Monthly Total</div>
-                <div className="text-base font-bold text-blue-700">{formatCurrency(schedule.monthlyPayment)}</div>
+                <div className="text-base font-bold text-blue-700">
+                  {formatCurrency(schedule.monthlyPayment)}
+                </div>
               </div>
               <div className="bg-white rounded-lg p-3 border border-blue-100 text-center">
                 <div className="text-xs text-gray-500">Per Period</div>
-                <div className="text-base font-bold text-green-700">{formatCurrency(schedule.perPeriod)}</div>
+                <div className="text-base font-bold text-green-700">
+                  {formatCurrency(schedule.perPeriod)}
+                </div>
               </div>
               <div className="bg-white rounded-lg p-3 border border-blue-100 text-center">
                 <div className="text-xs text-gray-500">Total Interest</div>
-                <div className="text-base font-bold text-purple-700">{formatCurrency(schedule.totalInterest)}</div>
+                <div className="text-base font-bold text-purple-700">
+                  {formatCurrency(schedule.totalInterest)}
+                </div>
               </div>
               <div className="bg-white rounded-lg p-3 border border-blue-100 text-center">
                 <div className="text-xs text-gray-500">Total Amount</div>
-                <div className="text-base font-bold text-gray-800">{formatCurrency(schedule.totalAmount)}</div>
+                <div className="text-base font-bold text-gray-800">
+                  {formatCurrency(schedule.totalAmount)}
+                </div>
               </div>
             </div>
             <div className="max-h-48 overflow-y-auto">
@@ -415,9 +601,16 @@ export default function NewLoan() {
                 </thead>
                 <tbody>
                   {schedule.schedule.map((s, i) => (
-                    <tr key={i} className="border-t border-blue-100">
-                      <td className="px-3 py-1.5 text-gray-600">{s.label}</td>
-                      <td className="px-3 py-1.5 text-right font-medium text-gray-800">{formatCurrency(s.amount_due)}</td>
+                    <tr key={i} className={`border-t border-blue-100 ${i === schedule.schedule.length - 1 ? 'bg-yellow-50' : ''}`}>
+                      <td className="px-3 py-1.5 text-gray-600">
+                        {s.label}
+                        {i === schedule.schedule.length - 1 && (
+                          <span className="ml-2 text-xs text-yellow-600 font-semibold">(adjusted)</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-medium text-gray-800">
+                        {formatCurrency(s.amount_due)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -427,41 +620,263 @@ export default function NewLoan() {
         )}
       </div>
 
-      {/* Signatures */}
+      {/* ── AMORTIZATION & RECEIPT ── */}
       <div className="bg-white border border-gray-200 rounded-xl p-5 mb-4 shadow-sm">
         <div className="text-base font-bold text-gray-700 mb-4 pb-2 border-b border-gray-200">
-          Signatures & Approval
+          Amortization & Receipt
         </div>
-        <div className="grid grid-cols-3 gap-4">
+
+        {/* Amortization Row */}
+        <div className="grid grid-cols-4 gap-4 mb-5">
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Prepared by</label>
-            <input className="w-full border-b border-gray-300 outline-none py-1.5 text-sm"
-              value={form.prepared_by} onChange={e => set('prepared_by', e.target.value)} />
+            <label className="block text-xs font-semibold text-gray-500 mb-1">
+              Amortization No.
+            </label>
+            <input
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              value={form.amortization_no}
+              onChange={e => set('amortization_no', e.target.value)}
+            />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Verified by</label>
-            <input className="w-full border-b border-gray-300 outline-none py-1.5 text-sm"
-              value={form.verified_by} onChange={e => set('verified_by', e.target.value)} />
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Mode</label>
+            <input
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              value={form.amortization_mode}
+              onChange={e => set('amortization_mode', e.target.value)}
+            />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Entered by</label>
-            <input className="w-full border-b border-gray-300 outline-none py-1.5 text-sm"
-              value={form.entered_by} onChange={e => set('entered_by', e.target.value)} />
+            <label className="block text-xs font-semibold text-gray-500 mb-1">
+              Amount (₱) — per period
+            </label>
+            <input
+              type="number"
+              className="w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2.5 text-sm font-bold text-green-700 outline-none"
+              value={form.amortization_amount}
+              onChange={e => set('amortization_amount', e.target.value)}
+            />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Recommended for Approval</label>
-            <input className="w-full border-b border-gray-300 outline-none py-1.5 text-sm"
-              value={form.recommended_by} onChange={e => set('recommended_by', e.target.value)} />
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Matured</label>
+            <input
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              value={form.matured}
+              onChange={e => set('matured', e.target.value)}
+            />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Approved by</label>
-            <input className="w-full border-b border-gray-300 outline-none py-1.5 text-sm"
-              value={form.approved_by} onChange={e => set('approved_by', e.target.value)} />
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Start Date</label>
+            <input
+              type="date"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              value={form.start_date}
+              onChange={e => set('start_date', e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Receipt Acknowledgment */}
+        <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-5">
+          <div className="text-sm font-bold text-gray-700 mb-3">Receipt Acknowledgment</div>
+          <div className="mb-3">
+            <label className="block text-xs font-semibold text-gray-500 mb-1">
+              Received the amount of (₱)
+            </label>
+            <input
+              type="number"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm font-bold text-blue-700 outline-none focus:border-blue-500 bg-white"
+              value={form.received_amount}
+              onChange={e => set('received_amount', e.target.value)}
+              placeholder="Total amount received by borrower"
+            />
+            <p className="text-xs text-gray-400 mt-1 italic">
+              In full payment of amount described above.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">
+                Signature (Applicant)
+              </label>
+              <input
+                className="w-full border-b-2 border-gray-400 outline-none py-2 text-sm bg-transparent"
+                value={form.applicant_signature}
+                onChange={e => set('applicant_signature', e.target.value)}
+                placeholder="_______________"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">
+                Recommended for Approval
+              </label>
+              <input
+                className="w-full border-b-2 border-gray-400 outline-none py-2 text-sm bg-transparent"
+                value={form.recommended_by}
+                onChange={e => set('recommended_by', e.target.value)}
+                placeholder="_______________"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Co-Maker</label>
+              <input
+                className="w-full border-b-2 border-gray-400 outline-none py-2 text-sm bg-transparent"
+                value={form.co_maker_signature}
+                onChange={e => set('co_maker_signature', e.target.value)}
+                placeholder="_______________"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">
+                Manager
+              </label>
+              <input
+                className="w-full border-b-2 border-gray-400 outline-none py-2 text-sm bg-transparent font-semibold"
+                value={form.manager}
+                onChange={e => set('manager', e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Approve</label>
+              <input
+                className="w-full border-b-2 border-gray-400 outline-none py-2 text-sm bg-transparent"
+                value={form.approve}
+                onChange={e => set('approve', e.target.value)}
+                placeholder="_______________"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Received by</label>
+              <input
+                className="w-full border-b-2 border-gray-400 outline-none py-2 text-sm bg-transparent"
+                value={form.received_by}
+                onChange={e => set('received_by', e.target.value)}
+                placeholder="_______________"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Copy Received</label>
+              <input
+                className="w-full border-b-2 border-gray-400 outline-none py-2 text-sm bg-transparent"
+                value={form.copy_received}
+                onChange={e => set('copy_received', e.target.value)}
+                placeholder="_______________"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">
+                C.I. / Collector
+              </label>
+              <input
+                className="w-full border-b-2 border-gray-400 outline-none py-2 text-sm bg-transparent"
+                value={form.ci_collector}
+                onChange={e => set('ci_collector', e.target.value)}
+                placeholder="_______________"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* DEBIT / CREDIT Table */}
+        <div className="mb-5">
+          <div className="text-sm font-bold text-gray-700 mb-3">
+            Account Entry (DEBIT / CREDIT)
+          </div>
+          <table className="w-full border border-gray-300 rounded-lg overflow-hidden text-sm">
+            <thead>
+              <tr className="bg-gray-50">
+                <th className="border border-gray-300 px-4 py-2.5 text-left font-semibold text-gray-600">
+                  ACCOUNT TITLE
+                </th>
+                <th className="border border-gray-300 px-4 py-2.5 text-center font-semibold text-gray-600 w-36">
+                  DEBIT
+                </th>
+                <th className="border border-gray-300 px-4 py-2.5 text-center font-semibold text-gray-600 w-36">
+                  CREDIT
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {[0, 1, 2].map(i => (
+                <tr key={i}>
+                  <td className="border border-gray-300 px-2 py-1">
+                    <input
+                      className="w-full outline-none text-sm py-1.5 px-1"
+                      placeholder="Account title"
+                      value={form[`account_title_${i}`] || ''}
+                      onChange={e => set(`account_title_${i}`, e.target.value)}
+                    />
+                  </td>
+                  <td className="border border-gray-300 px-2 py-1">
+                    <input
+                      type="number"
+                      className="w-full outline-none text-sm py-1.5 px-1 text-right"
+                      placeholder="0.00"
+                      value={form[`debit_${i}`] || ''}
+                      onChange={e => set(`debit_${i}`, e.target.value)}
+                    />
+                  </td>
+                  <td className="border border-gray-300 px-2 py-1">
+                    <input
+                      type="number"
+                      className="w-full outline-none text-sm py-1.5 px-1 text-right"
+                      placeholder="0.00"
+                      value={form[`credit_${i}`] || ''}
+                      onChange={e => set(`credit_${i}`, e.target.value)}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Final Signatures */}
+        <div>
+          <div className="text-sm font-bold text-gray-700 mb-3">Signatures</div>
+          <div className="grid grid-cols-4 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Prepared by</label>
+              <input
+                className="w-full border-b-2 border-gray-400 outline-none py-2 text-sm"
+                value={form.prepared_by}
+                onChange={e => set('prepared_by', e.target.value)}
+                placeholder="_______________"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Verified by</label>
+              <input
+                className="w-full border-b-2 border-gray-400 outline-none py-2 text-sm"
+                value={form.verified_by}
+                onChange={e => set('verified_by', e.target.value)}
+                placeholder="_______________"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Entered by</label>
+              <input
+                className="w-full border-b-2 border-gray-400 outline-none py-2 text-sm"
+                value={form.entered_by}
+                onChange={e => set('entered_by', e.target.value)}
+                placeholder="_______________"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Approved by</label>
+              <input
+                className="w-full border-b-2 border-gray-400 outline-none py-2 text-sm"
+                value={form.approved_by}
+                onChange={e => set('approved_by', e.target.value)}
+                placeholder="_______________"
+              />
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Actions */}
+      {/* ── ACTIONS ── */}
       <div className="flex justify-end gap-3 mb-8">
         <button
           onClick={() => navigate('/borrowers')}
