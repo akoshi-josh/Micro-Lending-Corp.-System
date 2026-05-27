@@ -19,8 +19,9 @@ export default function SubsidiaryLedger() {
       .finally(() => setLoading(false));
   }, []);
 
+  // ── FIX: use contentRef instead of content() ──
   const handlePrint = useReactToPrint({
-    content: () => printRef.current,
+    contentRef: printRef,
     documentTitle: 'MicroLend — Subsidiary Ledger',
   });
 

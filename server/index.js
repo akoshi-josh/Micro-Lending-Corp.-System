@@ -15,6 +15,7 @@ app.use('/api/payments', require('./routes/payments'));
 app.use('/api/vouchers', require('./routes/vouchers'));
 app.use('/api/ledger', require('./routes/ledger'));
 app.use('/api/expenses', require('./routes/expenses'));
+app.use('/api/settings', require('./routes/settings'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 
 const PORT = process.env.PORT || 5000;

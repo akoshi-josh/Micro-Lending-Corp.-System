@@ -1,6 +1,7 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
+import DateSimulator from './DateSimulator';
 
 const pageTitles = {
   '/': 'Dashboard',
@@ -39,6 +40,8 @@ export default function Layout() {
           <Outlet />
         </main>
       </div>
+
+      <DateSimulator />
     </div>
   );
 }

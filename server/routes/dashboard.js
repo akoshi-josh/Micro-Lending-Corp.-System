@@ -5,25 +5,76 @@ const verifyToken = require('../middleware/auth');
 
 router.get('/', verifyToken, async (req, res) => {
   try {
-    // Total active loans out
+    const simDate = req.query.simDate || null;
+    const today = simDate ? `'${simDate}'::date` : 'CURRENT_DATE';
+
+    // Auto-mark overdue loans based on current/simulated date
+    // Mark payment_schedule entries as overdue
+await pool.query(`
+  UPDATE payment_schedule
+  SET status = 'overdue'
+  WHERE status = 'pending'
+  AND due_date < ${today}
+`);
+
+// Mark loans as overdue if they have overdue schedule entries
+await pool.query(`
+  UPDATE loans SET status = 'overdue'
+  WHERE status = 'active'
+  AND id IN (
+    SELECT DISTINCT loan_id
+    FROM payment_schedule
+    WHERE status = 'overdue'
+  )
+`);
+
+// Mark loans back to active if NO more overdue periods
+await pool.query(`
+  UPDATE loans SET status = 'active'
+  WHERE status = 'overdue'
+  AND id NOT IN (
+    SELECT DISTINCT loan_id
+    FROM payment_schedule
+    WHERE status = 'overdue'
+  )
+  AND id NOT IN (
+    SELECT DISTINCT loan_id
+    FROM payment_schedule
+    WHERE status = 'pending'
+    AND due_date < ${today}
+  )
+`);
+
+// Mark loans as paid if all schedule entries are paid
+await pool.query(`
+  UPDATE loans SET status = 'paid'
+  WHERE status != 'paid'
+  AND id NOT IN (
+    SELECT DISTINCT loan_id
+    FROM payment_schedule
+    WHERE status IN ('pending', 'overdue')
+  )
+`);
+    // Total loans out
     const totalLoans = await pool.query(`
       SELECT COALESCE(SUM(loan_amount), 0) AS total
       FROM loans
+      WHERE status != 'paid'
     `);
 
-    // Total collected from all payments
+    // Total collected
     const totalCollected = await pool.query(`
       SELECT COALESCE(SUM(amount_paid), 0) AS total
       FROM payments
     `);
 
-    // Total interest earned from payments
+    // Total interest earned
     const interestEarned = await pool.query(`
       SELECT COALESCE(SUM(interest_collected), 0) AS total
       FROM payments
     `);
 
-    // Total expenses from vouchers
+    // Total expenses
     const totalExpenses = await pool.query(`
       SELECT COALESCE(SUM(amount), 0) AS total
       FROM cash_vouchers
@@ -37,21 +88,26 @@ router.get('/', verifyToken, async (req, res) => {
       SELECT
         b.full_name,
         b.contact_number,
-        l.loan_amount,
-        l.id AS loan_id,
         b.id AS borrower_id,
+        l.id AS loan_id,
+        l.loan_amount,
+        l.interest_rate,
         ROUND(
           (l.loan_amount + (l.loan_amount * l.interest_rate / 100))
           - COALESCE(SUM(p.amount_paid), 0),
-        2) AS remaining_balance
+        2) AS remaining_balance,
+        COUNT(ps.id) AS overdue_periods,
+        MIN(ps.due_date) AS oldest_due_date,
+        (${today} - MIN(ps.due_date)) AS days_overdue
       FROM loans l
       JOIN borrowers b ON b.id = l.borrower_id
       LEFT JOIN payments p ON p.loan_id = l.id
+      LEFT JOIN payment_schedule ps ON ps.loan_id = l.id
+        AND ps.status = 'overdue'
       WHERE l.status = 'overdue'
-      GROUP BY b.full_name, b.contact_number, l.loan_amount,
-               l.interest_rate, l.id, b.id
-      ORDER BY l.created_at DESC
-      LIMIT 5
+      GROUP BY b.full_name, b.contact_number, b.id,
+               l.id, l.loan_amount, l.interest_rate
+      ORDER BY days_overdue DESC
     `);
 
     // Recent payments
@@ -65,25 +121,24 @@ router.get('/', verifyToken, async (req, res) => {
     `);
 
     // Upcoming payments
-// Upcoming payments — nearest due first
-const upcomingPayments = await pool.query(`
-  SELECT
-    ps.due_date,
-    ps.amount_due,
-    ps.status,
-    b.full_name,
-    b.id AS borrower_id,
-    l.payment_frequency,
-    l.id AS loan_id,
-    (ps.due_date - CURRENT_DATE) AS days_until_due
-  FROM payment_schedule ps
-  JOIN loans l ON l.id = ps.loan_id
-  JOIN borrowers b ON b.id = l.borrower_id
-  WHERE ps.status = 'pending'
-    AND l.status != 'paid'
-  ORDER BY ps.due_date ASC
-  LIMIT 8
-`);
+    const upcomingPayments = await pool.query(`
+      SELECT
+        ps.due_date,
+        ps.amount_due,
+        ps.status,
+        b.full_name,
+        b.id AS borrower_id,
+        l.payment_frequency,
+        l.id AS loan_id,
+        (ps.due_date - ${today}) AS days_until_due
+      FROM payment_schedule ps
+      JOIN loans l ON l.id = ps.loan_id
+      JOIN borrowers b ON b.id = l.borrower_id
+      WHERE ps.status = 'pending'
+        AND l.status != 'paid'
+      ORDER BY ps.due_date ASC
+      LIMIT 8
+    `);
 
     res.json({
       total_loans_out: totalLoans.rows[0].total,

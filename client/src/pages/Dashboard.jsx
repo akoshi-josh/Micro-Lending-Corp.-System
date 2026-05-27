@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import { getSimulatedDate } from '../utils/simulatedDate';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import StatusBadge from '../components/StatusBadge';
 
@@ -9,12 +10,16 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    api.get('/api/dashboard')
-      .then(res => setData(res.data))
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
+useEffect(() => {
+  const simDate = getSimulatedDate();
+  const url = simDate
+    ? `/api/dashboard?simDate=${simDate}`
+    : '/api/dashboard';
+  api.get(url)
+    .then(res => setData(res.data))
+    .catch(console.error)
+    .finally(() => setLoading(false));
+}, []);
 
   if (loading) return (
     <div className="flex items-center justify-center h-64 text-base text-gray-400">
@@ -108,16 +113,27 @@ export default function Dashboard() {
                   </td>
                 </tr>
               )}
-              {data?.overdue_accounts?.map((o, i) => (
-                <tr
-                  key={i}
-                  className="border-t border-gray-100 hover:bg-red-50 cursor-pointer transition-colors"
-                  onClick={() => navigate(`/borrowers/${o.loan_id}`)}
-                >
-                  <td className="px-5 py-3 text-sm font-semibold text-gray-800">{o.full_name}</td>
-                  <td className="px-5 py-3 text-right text-sm font-bold text-red-600">{formatCurrency(o.remaining_balance)}</td>
-                </tr>
-              ))}
+            {data?.overdue_accounts?.map((o, i) => (
+              <tr
+                key={i}
+                className="border-t border-gray-100 hover:bg-red-50 cursor-pointer transition-colors"
+                onClick={() => navigate(`/borrowers/${o.borrower_id}`)}
+              >
+                <td className="px-5 py-3">
+                  <div className="text-sm font-semibold text-gray-800">{o.full_name}</div>
+                  <div className="text-xs text-red-500 font-medium">
+                    {o.overdue_periods} period{o.overdue_periods !== 1 ? 's' : ''} overdue
+                    · {o.days_overdue} days
+                  </div>
+                </td>
+                <td className="px-5 py-3 text-right">
+                  <div className="text-sm font-bold text-red-600">
+                    {formatCurrency(o.remaining_balance)}
+                  </div>
+                  <div className="text-xs text-red-400">remaining</div>
+                </td>
+              </tr>
+            ))}
             </tbody>
           </table>
         </div>

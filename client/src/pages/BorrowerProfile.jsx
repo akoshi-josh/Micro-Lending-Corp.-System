@@ -4,6 +4,7 @@ import { useReactToPrint } from 'react-to-print';
 import api from '../utils/api';
 import { formatCurrency, formatDate, formatPercent } from '../utils/formatters';
 import StatusBadge from '../components/StatusBadge';
+import { getSimulatedDate, getToday } from '../utils/simulatedDate';
 
 export default function BorrowerProfile() {
   const { id } = useParams();
@@ -14,28 +15,35 @@ export default function BorrowerProfile() {
   const [showPayModal, setShowPayModal] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [showDocsModal, setShowDocsModal] = useState(false);
-  const [payment, setPayment] = useState({
-    amount_paid: '',
-    payment_date: new Date().toISOString().split('T')[0],
-    notes: '',
-  });
+const [payment, setPayment] = useState({
+  amount_paid: '',
+  payment_date: (getSimulatedDate() || new Date().toISOString().split('T')[0]),
+  notes: '',
+});
   const [payLoading, setPayLoading] = useState(false);
   const [payError, setPayError] = useState('');
   const [uploadedDocs, setUploadedDocs] = useState([]);
   const [photo, setPhoto] = useState(null);
+  const [penalty, setPenalty] = useState(null);
+const [simDate] = useState(getSimulatedDate());
 
-  const fetchData = () => {
-    setLoading(true);
-    api.get(`/api/borrowers/${id}`)
-      .then(res => setData(res.data))
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  };
+const fetchData = () => {
+  setLoading(true);
+  const simDate = getSimulatedDate();
+  const simParam = simDate ? `?simDate=${simDate}` : '';
+  api.get(`/api/borrowers/${id}${simParam}`)
+    .then(res => {
+      setData(res.data);
+      setPenalty(res.data.penalty || null);
+    })
+    .catch(console.error)
+    .finally(() => setLoading(false));
+};
 
   useEffect(() => { fetchData(); }, [id]);
 
   const handlePrint = useReactToPrint({
-    content: () => printRef.current,
+    contentRef: printRef,
     documentTitle: `MicroLend — ${data?.borrower?.full_name}`,
   });
 
@@ -124,19 +132,45 @@ export default function BorrowerProfile() {
   const initials = borrower.full_name
     ?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
-  // Running balance
-  let runningBalance = parseFloat(stats?.total_payable || 0);
-  const paymentRows = [...(payments || [])].reverse().map(p => {
-    runningBalance -= parseFloat(p.amount_paid);
-    return { ...p, running_balance: runningBalance };
-  }).reverse();
 
-  const progressPercent = stats?.total_payable > 0
-    ? Math.min(
-        (parseFloat(stats.total_paid) / parseFloat(stats.total_payable)) * 100,
-        100
-      )
-    : 0;
+// Starting balance = total_payable + permanent penalty charged
+// Running balance starts from total_payable + all unpaid penalties
+// Running balance starts from total_payable
+// Penalty rows will be inserted inline in the transaction list
+// Build payment rows with correct running balance
+// Start from total_payable, subtract each payment
+// Penalty is shown as a separate line when it was charged
+let runningBalance = parseFloat(stats?.total_payable || 0);
+
+// Sort payments oldest first for running balance
+const sortedPayments = [...(payments || [])].sort(
+  (a, b) => new Date(a.payment_date) - new Date(b.payment_date)
+);
+
+const paymentRows = sortedPayments.map(p => {
+  const penaltyInPayment = parseFloat(p.penalty_amount || 0);
+  // Add penalty to balance before this payment
+  // (penalty was charged before payment was collected)
+  if (penaltyInPayment > 0) {
+    runningBalance += penaltyInPayment;
+  }
+  runningBalance -= parseFloat(p.amount_paid);
+  return {
+    ...p,
+    running_balance: parseFloat(runningBalance.toFixed(2)),
+    penalty_amount: penaltyInPayment,
+  };
+});
+
+// Add current unpaid penalty to final balance
+const currentUnpaidPenalty = parseFloat(penalty?.total_penalty || 0);
+const progressPercent = stats?.total_payable_with_penalty > 0
+  ? Math.min(
+      (parseFloat(stats.total_paid) /
+        parseFloat(stats.total_payable_with_penalty)) * 100,
+      100
+    )
+  : 0;
 
   // Per period due
   const totalPayable = parseFloat(stats?.total_payable || 0);
@@ -153,15 +187,13 @@ export default function BorrowerProfile() {
     frequencyLabel = 'Weekly';
   }
 
-  // Days until next payment
-  const getDaysUntilDue = (dueDate) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const due = new Date(dueDate);
-    due.setHours(0, 0, 0, 0);
-    return Math.ceil((due - today) / (1000 * 60 * 60 * 24));
-  };
-
+const getDaysUntilDue = (dueDate) => {
+  const today = getToday();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dueDate);
+  due.setHours(0, 0, 0, 0);
+  return Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+};
   return (
     <div>
       {/* Back */}
@@ -172,18 +204,8 @@ export default function BorrowerProfile() {
         ← Back to Borrowers
       </button>
 
-      <div ref={printRef}>
-
-        {/* Print Header */}
-        <div className="hidden print:block mb-6 pb-4 border-b text-center">
-          <div className="text-lg font-bold">L.A. and M.J. Micro Lending Corporation</div>
-          <div className="text-sm text-gray-500">Borrower Account Record</div>
-          <div className="text-xs text-gray-400 mt-1">
-            Printed: {new Date().toLocaleDateString('en-PH', {
-              year: 'numeric', month: 'long', day: '2-digit'
-            })}
-          </div>
-        </div>
+      {/* ── SCREEN CONTENT (not printed) ── */}
+      <div>
 
         {/* ── PROFILE HEADER ── */}
         <div className="bg-white border border-gray-200 rounded-xl p-5 mb-4 shadow-sm">
@@ -214,7 +236,7 @@ export default function BorrowerProfile() {
             </div>
 
             {/* Action Buttons */}
-            <div className="flex gap-2 no-print flex-wrap justify-end">
+            <div className="flex gap-2 flex-wrap justify-end">
               <button
                 onClick={() => setShowInfoModal(true)}
                 className="px-4 py-2 border border-blue-200 text-blue-700 bg-blue-50 rounded-lg text-sm font-semibold hover:bg-blue-100"
@@ -244,36 +266,87 @@ export default function BorrowerProfile() {
         </div>
 
         {/* ── STATS ROW ── */}
-        <div className="grid grid-cols-4 gap-3 mb-4">
-          <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm text-center">
-            <div className="text-xs text-gray-500 font-medium mb-1">Loan Amount</div>
-            <div className="text-xl font-bold text-blue-700">
-              {formatCurrency(stats?.loan_amount)}
-            </div>
-            <div className="text-xs text-gray-400 mt-1">Principal</div>
-          </div>
-          <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm text-center">
-            <div className="text-xs text-gray-500 font-medium mb-1">Total Payable</div>
-            <div className="text-xl font-bold text-gray-800">
-              {formatCurrency(stats?.total_payable)}
-            </div>
-            <div className="text-xs text-gray-400 mt-1">Principal + Interest</div>
-          </div>
-          <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm text-center">
-            <div className="text-xs text-gray-500 font-medium mb-1">Total Paid</div>
-            <div className="text-xl font-bold text-green-700">
-              {formatCurrency(stats?.total_paid)}
-            </div>
-            <div className="text-xs text-gray-400 mt-1">Payments received</div>
-          </div>
-          <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm text-center">
-            <div className="text-xs text-gray-500 font-medium mb-1">Amount Receivable</div>
-            <div className="text-xl font-bold text-orange-600">
-              {formatCurrency(stats?.remaining_balance)}
-            </div>
-            <div className="text-xs text-gray-400 mt-1">Still to collect</div>
-          </div>
-        </div>
+{/* ── STATS ROW ── */}
+<div className="grid grid-cols-5 gap-3 mb-4">
+  <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm text-center">
+    <div className="text-xs text-gray-500 font-medium mb-1">Loan Amount</div>
+    <div className="text-xl font-bold text-blue-700">
+      {formatCurrency(stats?.loan_amount)}
+    </div>
+    <div className="text-xs text-gray-400 mt-1">Principal</div>
+  </div>
+  <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm text-center">
+    <div className="text-xs text-gray-500 font-medium mb-1">Total Payable</div>
+    <div className="text-xl font-bold text-gray-800">
+      {formatCurrency(stats?.total_payable)}
+    </div>
+    <div className="text-xs text-gray-400 mt-1">Principal + Interest</div>
+  </div>
+  <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm text-center">
+    <div className="text-xs text-gray-500 font-medium mb-1">Total Paid</div>
+    <div className="text-xl font-bold text-green-700">
+      {formatCurrency(stats?.total_paid)}
+    </div>
+    <div className="text-xs text-gray-400 mt-1">Payments received</div>
+  </div>
+  {/* Penalty card — only show if there is penalty */}
+  {penalty?.total_penalty > 0 ? (
+<div className={`rounded-xl p-4 shadow-sm text-center border ${
+  penalty?.total_penalty > 0
+    ? 'bg-red-50 border-red-200'
+    : penalty?.total_paid_penalty > 0
+    ? 'bg-orange-50 border-orange-200'
+    : 'bg-white border-gray-200'
+}`}>
+  <div className="text-xs font-medium mb-1 text-gray-500">Penalty</div>
+  {penalty?.total_penalty > 0 ? (
+    <>
+      <div className="text-xl font-bold text-red-600">
+        +{formatCurrency(penalty?.total_penalty)}
+      </div>
+      <div className="text-xs text-red-400 mt-1">
+        {penalty?.unpaid_penalty_count || penalty?.overdue_periods} unpaid
+      </div>
+    </>
+  ) : penalty?.total_paid_penalty > 0 ? (
+    <>
+      <div className="text-xl font-bold text-orange-500">
+        {formatCurrency(penalty?.total_paid_penalty)}
+      </div>
+      <div className="text-xs text-orange-400 mt-1">Already paid</div>
+    </>
+  ) : (
+    <>
+      <div className="text-xl font-bold text-gray-400">₱0.00</div>
+      <div className="text-xs text-gray-400 mt-1">No penalty</div>
+    </>
+  )}
+</div>
+  ) : (
+    <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm text-center">
+      <div className="text-xs text-gray-500 font-medium mb-1">Penalty</div>
+      <div className="text-xl font-bold text-gray-400">
+        ₱0.00
+      </div>
+      <div className="text-xs text-gray-400 mt-1">No overdue</div>
+    </div>
+  )}
+  <div className={`rounded-xl p-4 shadow-sm text-center border ${
+    penalty?.total_penalty > 0
+      ? 'bg-red-50 border-red-200'
+      : 'bg-white border-gray-200'
+  }`}>
+    <div className="text-xs text-gray-500 font-medium mb-1">Amount Receivable</div>
+    <div className={`text-xl font-bold ${
+      penalty?.total_penalty > 0 ? 'text-red-600' : 'text-orange-600'
+    }`}>
+      {formatCurrency(stats?.remaining_balance)}
+    </div>
+    <div className="text-xs text-gray-400 mt-1">
+      {penalty?.total_penalty > 0 ? 'Includes penalty' : 'Still to collect'}
+    </div>
+  </div>
+</div>
 
         {/* ── PROGRESS BAR ── */}
         <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
@@ -296,61 +369,7 @@ export default function BorrowerProfile() {
           </div>
         </div>
 
-        {/* ── NEXT PAYMENT DUE ── */}
-        {next_payment && loan?.status !== 'paid' && (
-          <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-2xl">
-                  📅
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 font-medium">Next Payment Due</div>
-                  <div className="text-lg font-bold text-gray-800">
-                    {formatDate(next_payment.due_date)}
-                  </div>
-                  <div className="text-sm mt-0.5">
-                    {(() => {
-                      const days = getDaysUntilDue(next_payment.due_date);
-                      if (days < 0) return (
-                        <span className="text-red-500 font-semibold">
-                          ⚠ Overdue by {Math.abs(days)} day{Math.abs(days) !== 1 ? 's' : ''}
-                        </span>
-                      );
-                      if (days === 0) return (
-                        <span className="text-orange-500 font-semibold">
-                          Due today!
-                        </span>
-                      );
-                      if (days <= 3) return (
-                        <span className="text-orange-500 font-semibold">
-                          ⚠ Due in {days} day{days !== 1 ? 's' : ''}
-                        </span>
-                      );
-                      return (
-                        <span className="text-gray-500">
-                          Due in {days} days
-                        </span>
-                      );
-                    })()}
-                  </div>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-xs text-gray-400 font-medium">Amount Due</div>
-                <div className="text-2xl font-bold text-blue-700">
-                  {formatCurrency(next_payment.amount_due)}
-                </div>
-                <button
-                  onClick={() => setShowPayModal(true)}
-                  className="mt-2 text-sm bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-800 no-print"
-                >
-                  Pay Now
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+
 
         {/* Loan fully paid notice */}
         {loan?.status === 'paid' && (
@@ -414,24 +433,40 @@ export default function BorrowerProfile() {
               </tr>
             </thead>
             <tbody>
-              {/* Opening entry */}
-              <tr className="border-t border-gray-100 bg-blue-50">
-                <td className="px-5 py-3 text-sm text-gray-600">{formatDate(loan?.release_date)}</td>
-                <td className="px-5 py-3 text-sm font-semibold text-blue-700">Loan Released</td>
-                <td className="px-5 py-3 text-right text-sm font-bold text-blue-700">
-                  {formatCurrency(stats?.loan_amount)}
-                </td>
-                <td className="px-5 py-3 text-right text-sm text-purple-600">
-                  +{formatCurrency(
-                    parseFloat(stats?.loan_amount || 0) *
-                    parseFloat(stats?.interest_rate || 0) / 100
-                  )}
-                </td>
-                <td className="px-5 py-3 text-right text-sm font-bold text-gray-800">
-                  {formatCurrency(stats?.total_payable)}
-                </td>
-              </tr>
+{/* Opening entry */}
+<tr className="border-t border-gray-100 bg-blue-50">
+  <td className="px-5 py-3 text-sm text-gray-600">{formatDate(loan?.release_date)}</td>
+  <td className="px-5 py-3 text-sm font-semibold text-blue-700">Loan Released</td>
+  <td className="px-5 py-3 text-right text-sm font-bold text-blue-700">
+    {formatCurrency(stats?.loan_amount)}
+  </td>
+  <td className="px-5 py-3 text-right text-sm text-purple-600">
+    +{formatCurrency(
+      parseFloat(stats?.loan_amount || 0) *
+      parseFloat(stats?.interest_rate || 0) / 100
+    )}
+  </td>
+  <td className="px-5 py-3 text-right text-sm font-bold text-gray-800">
+    {formatCurrency(stats?.total_payable)}
+  </td>
+</tr>
 
+{/* Penalty entry — show only if penalty exists */}
+{/* Show penalty ONLY if overdue periods exist AND penalty > 0 */}
+{penalty?.overdue_periods > 0 && penalty?.total_penalty > 0 && (
+  <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+    <div className="flex justify-between text-sm">
+      <span className="text-red-600 font-semibold">⚠ Penalty Charges</span>
+      <span className="text-red-700 font-bold">
+        +{formatCurrency(penalty.total_penalty)}
+      </span>
+    </div>
+    <div className="text-xs text-red-400 mt-0.5">
+      {penalty.overdue_periods} overdue period{penalty.overdue_periods !== 1 ? 's' : ''} ×
+      {penalty.penalty_rate} — already added to remaining balance
+    </div>
+  </div>
+)}
               {paymentRows.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-5 py-8 text-center text-gray-400 text-sm">
@@ -440,17 +475,303 @@ export default function BorrowerProfile() {
                 </tr>
               )}
 
-              {paymentRows.map((p) => (
-                <tr key={p.id} className="border-t border-gray-100 hover:bg-gray-50">
-                  <td className="px-5 py-3 text-sm text-gray-600">{formatDate(p.payment_date)}</td>
-                  <td className="px-5 py-3 text-sm text-gray-700">{p.notes || 'Payment Received'}</td>
-                  <td className="px-5 py-3 text-right text-sm font-bold text-green-600">
+{paymentRows.map((p) => (
+  <tr key={p.id} className="border-t border-gray-100 hover:bg-gray-50">
+    <td className="px-5 py-3 text-sm text-gray-600">{formatDate(p.payment_date)}</td>
+    <td className="px-5 py-3 text-sm text-gray-700">
+      {p.notes || 'Payment Received'}
+      {p.penalty_amount > 0 && (
+        <span className="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold">
+          +{formatCurrency(p.penalty_amount)} penalty
+        </span>
+      )}
+    </td>
+    <td className="px-5 py-3 text-right text-sm font-bold text-green-600">
+      +{formatCurrency(p.amount_paid)}
+    </td>
+    <td className="px-5 py-3 text-right text-sm text-purple-600">
+      {formatCurrency(p.interest_collected)}
+    </td>
+    <td className="px-5 py-3 text-right text-sm font-bold text-gray-800">
+      {formatCurrency(p.running_balance)}
+    </td>
+  </tr>
+))}
+            </tbody>
+          </table>
+        </div>
+
+      
+
+      </div>{/* end screen content */}
+
+
+      {/* ── PRINT-ONLY CONTENT ── */}
+      <div ref={printRef} className="hidden print:block">
+        <style>{`
+          @media print {
+            @page { margin: 20mm 15mm; size: A4; }
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          }
+        `}</style>
+
+        {/* Print Header */}
+        <div style={{ textAlign: 'center', marginBottom: '24px', paddingBottom: '16px', borderBottom: '2px solid #1d4ed8' }}>
+          <div style={{ fontSize: '18px', fontWeight: '700', color: '#1e3a8a' }}>
+            L.A. and M.J. Micro Lending Corporation
+          </div>
+          <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '2px' }}>
+            Borrower Account Record
+          </div>
+          <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>
+            Printed: {new Date().toLocaleDateString('en-PH', {
+              year: 'numeric', month: 'long', day: '2-digit'
+            })}
+          </div>
+        </div>
+
+        {/* Borrower Name + Basic Info */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', paddingBottom: '16px', borderBottom: '1px solid #e5e7eb' }}>
+          <div>
+            <div style={{ fontSize: '22px', fontWeight: '700', color: '#111827' }}>
+              {borrower.full_name}
+            </div>
+            <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
+              {borrower.contact_number && <span>📞 {borrower.contact_number} &nbsp;·&nbsp; </span>}
+              {borrower.address && <span>📍 {borrower.address}</span>}
+            </div>
+            <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>
+              {loan?.payment_frequency?.replace('_', '-')} payment &nbsp;·&nbsp;
+              {formatPercent(loan?.interest_rate)} interest &nbsp;·&nbsp;
+              {loan?.term_months} months term
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{
+              display: 'inline-block',
+              fontSize: '11px',
+              fontWeight: '600',
+              padding: '3px 10px',
+              borderRadius: '9999px',
+              backgroundColor: loan?.status === 'paid' ? '#dcfce7' : '#dbeafe',
+              color: loan?.status === 'paid' ? '#15803d' : '#1d4ed8',
+              border: `1px solid ${loan?.status === 'paid' ? '#86efac' : '#93c5fd'}`,
+            }}>
+              {loan?.status === 'paid' ? '✓ Fully Paid' : 'Active'}
+            </div>
+          </div>
+        </div>
+
+        {/* Balance Summary Cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '20px' }}>
+          {[
+            { label: 'Loan Amount', value: formatCurrency(stats?.loan_amount), color: '#1d4ed8' },
+            { label: 'Total Payable', value: formatCurrency(stats?.total_payable), color: '#111827' },
+            { label: 'Total Paid', value: formatCurrency(stats?.total_paid), color: '#15803d' },
+            { label: 'Remaining Balance', value: formatCurrency(stats?.remaining_balance), color: '#ea580c' },
+          ].map((item, i) => (
+            <div key={i} style={{
+              border: '1px solid #e5e7eb',
+              borderRadius: '8px',
+              padding: '10px 12px',
+              textAlign: 'center',
+              backgroundColor: '#f9fafb',
+            }}>
+              <div style={{ fontSize: '10px', color: '#9ca3af', fontWeight: '500', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                {item.label}
+              </div>
+              <div style={{ fontSize: '15px', fontWeight: '700', color: item.color }}>
+                {item.value}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Progress Bar */}
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#6b7280', marginBottom: '6px' }}>
+            <span>Repayment Progress</span>
+            <span style={{ fontWeight: '600', color: '#1d4ed8' }}>{progressPercent.toFixed(1)}% paid</span>
+          </div>
+          <div style={{ width: '100%', height: '8px', backgroundColor: '#e5e7eb', borderRadius: '9999px', overflow: 'hidden' }}>
+            <div style={{
+              width: `${progressPercent}%`,
+              height: '100%',
+              backgroundColor: '#2563eb',
+              borderRadius: '9999px',
+            }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#9ca3af', marginTop: '4px' }}>
+            <span>Paid: {formatCurrency(stats?.total_paid)}</span>
+            <span style={{ fontWeight: '600', color: '#1d4ed8' }}>{frequencyLabel} Due: {formatCurrency(perPeriodDue)}</span>
+            <span>Remaining: {formatCurrency(stats?.remaining_balance)}</span>
+          </div>
+        </div>
+
+        {/* Next Payment Due */}
+        {next_payment && loan?.status !== 'paid' && (
+          <div style={{
+            border: '1px solid #bfdbfe',
+            borderRadius: '8px',
+            padding: '14px 16px',
+            marginBottom: '20px',
+            backgroundColor: '#eff6ff',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}>
+            <div>
+              <div style={{ fontSize: '10px', color: '#6b7280', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
+                Next Payment Due
+              </div>
+              <div style={{ fontSize: '16px', fontWeight: '700', color: '#111827' }}>
+                {formatDate(next_payment.due_date)}
+              </div>
+              <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>
+                {frequencyLabel} installment
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '10px', color: '#6b7280', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
+                Amount Due
+              </div>
+              <div style={{ fontSize: '22px', fontWeight: '700', color: '#1d4ed8' }}>
+                {formatCurrency(next_payment.amount_due)}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── PENALTY NOTICE ── */}
+{penalty && penalty.overdue_periods > 0 && loan?.status !== 'paid' && (
+  <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4 shadow-sm">
+    <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center gap-2">
+        <span className="text-xl">⚠️</span>
+        <div>
+          <div className="text-sm font-bold text-red-700">Penalty Charges</div>
+            <div className="text-xs text-red-500">
+              {penalty.overdue_periods} overdue period{penalty.overdue_periods !== 1 ? 's' : ''} &nbsp;·&nbsp;
+              {penalty.penalty_rate} penalty per period &nbsp;·&nbsp;
+              {penalty.grace_period_days} day{penalty.grace_period_days !== 1 ? 's' : ''} grace period
+            </div>
+        </div>
+      </div>
+      <div className="text-right">
+        <div className="text-xs text-red-500 font-medium">Total Penalty</div>
+        <div className="text-xl font-bold text-red-700">
+          {formatCurrency(penalty.total_penalty)}
+        </div>
+      </div>
+    </div>
+    <table className="w-full text-xs">
+      <thead>
+        <tr className="border-b border-red-200">
+          <th className="pb-2 text-left text-red-600 font-semibold">Due Date</th>
+          <th className="pb-2 text-right text-red-600 font-semibold">Amount Due</th>
+          <th className="pb-2 text-right text-red-600 font-semibold">Days Overdue</th>
+          <th className="pb-2 text-right text-red-600 font-semibold">Penalty</th>
+        </tr>
+      </thead>
+      <tbody>
+            {penalty.penalty_breakdown.map((p, i) => (
+              <tr key={i} className="border-t border-red-100">
+                <td className="py-1.5 text-red-700">{formatDate(p.due_date)}</td>
+                <td className="py-1.5 text-right text-red-700">{formatCurrency(p.amount_due)}</td>
+                <td className="py-1.5 text-right text-red-700">{p.days_overdue} days</td>
+                <td className="py-1.5 text-right font-bold">
+                  {p.within_grace ? (
+                    <span className="text-yellow-600">Within grace period</span>
+                  ) : (
+                    <span className="text-red-700">{formatCurrency(p.penalty)}</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+      </tbody>
+      <tfoot>
+        <tr className="border-t-2 border-red-300">
+          <td colSpan={3} className="pt-2 font-bold text-red-700">Total Penalty</td>
+          <td className="pt-2 text-right font-bold text-red-700">
+            {formatCurrency(penalty.total_penalty)}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+)}
+
+        {/* Loan Fully Paid Notice */}
+        {loan?.status === 'paid' && (
+          <div style={{
+            border: '1px solid #86efac',
+            borderRadius: '8px',
+            padding: '14px 16px',
+            marginBottom: '20px',
+            backgroundColor: '#f0fdf4',
+          }}>
+            <div style={{ fontSize: '14px', fontWeight: '700', color: '#15803d' }}>
+              🎉 Loan Fully Paid
+            </div>
+            <div style={{ fontSize: '12px', color: '#16a34a', marginTop: '2px' }}>
+              This borrower has completed all payments successfully.
+            </div>
+          </div>
+        )}
+
+        {/* Transaction History */}
+        <div style={{ marginBottom: '4px' }}>
+          <div style={{ fontSize: '13px', fontWeight: '700', color: '#111827', marginBottom: '8px', paddingBottom: '6px', borderBottom: '1px solid #e5e7eb' }}>
+            Transaction History
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+            <thead>
+              <tr style={{ backgroundColor: '#f3f4f6' }}>
+                <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: '600', color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>Date</th>
+                <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: '600', color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>Description</th>
+                <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: '600', color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>Amount Paid</th>
+                <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: '600', color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>Interest</th>
+                <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: '600', color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>Running Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {/* Opening entry */}
+              <tr style={{ backgroundColor: '#eff6ff', borderBottom: '1px solid #e5e7eb' }}>
+                <td style={{ padding: '7px 10px', color: '#374151' }}>{formatDate(loan?.release_date)}</td>
+                <td style={{ padding: '7px 10px', fontWeight: '600', color: '#1d4ed8' }}>Loan Released</td>
+                <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: '700', color: '#1d4ed8' }}>
+                  {formatCurrency(stats?.loan_amount)}
+                </td>
+                <td style={{ padding: '7px 10px', textAlign: 'right', color: '#7c3aed' }}>
+                  +{formatCurrency(
+                    parseFloat(stats?.loan_amount || 0) *
+                    parseFloat(stats?.interest_rate || 0) / 100
+                  )}
+                </td>
+                <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: '700', color: '#111827' }}>
+                  {formatCurrency(stats?.total_payable)}
+                </td>
+              </tr>
+
+              {paymentRows.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ padding: '20px 10px', textAlign: 'center', color: '#9ca3af' }}>
+                    No payments recorded yet.
+                  </td>
+                </tr>
+              )}
+
+              {paymentRows.map((p, i) => (
+                <tr key={p.id} style={{ borderBottom: '1px solid #f3f4f6', backgroundColor: i % 2 === 0 ? '#ffffff' : '#f9fafb' }}>
+                  <td style={{ padding: '7px 10px', color: '#374151' }}>{formatDate(p.payment_date)}</td>
+                  <td style={{ padding: '7px 10px', color: '#374151' }}>{p.notes || 'Payment Received'}</td>
+                  <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: '700', color: '#15803d' }}>
                     +{formatCurrency(p.amount_paid)}
                   </td>
-                  <td className="px-5 py-3 text-right text-sm text-purple-600">
+                  <td style={{ padding: '7px 10px', textAlign: 'right', color: '#7c3aed' }}>
                     {formatCurrency(p.interest_collected)}
                   </td>
-                  <td className="px-5 py-3 text-right text-sm font-bold text-gray-800">
+                  <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: '700', color: '#111827' }}>
                     {formatCurrency(p.running_balance)}
                   </td>
                 </tr>
@@ -459,88 +780,13 @@ export default function BorrowerProfile() {
           </table>
         </div>
 
-        {/* ── PAYMENT SCHEDULE ── */}
-        {schedule && schedule.length > 0 && (
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-            <div className="px-5 py-4 border-b border-gray-200">
-              <span className="text-base font-bold text-gray-800">Payment Schedule</span>
-            </div>
-            <table className="w-full">
-              <thead>
-                <tr className="bg-gray-50">
-                  <th className="px-5 py-3 text-left text-sm font-semibold text-gray-500">#</th>
-                  <th className="px-5 py-3 text-left text-sm font-semibold text-gray-500">Due Date</th>
-                  <th className="px-5 py-3 text-right text-sm font-semibold text-gray-500">Amount Due</th>
-                  <th className="px-5 py-3 text-center text-sm font-semibold text-gray-500">Status</th>
-                  <th className="px-5 py-3 text-left text-sm font-semibold text-gray-500">Days</th>
-                </tr>
-              </thead>
-              <tbody>
-                {schedule.map((s, i) => {
-                  const days = getDaysUntilDue(s.due_date);
-                  const isNext = s.status === 'pending' &&
-                    next_payment?.due_date &&
-                    new Date(s.due_date).toDateString() ===
-                    new Date(next_payment.due_date).toDateString();
+        {/* Footer */}
+        <div style={{ marginTop: '32px', paddingTop: '12px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#9ca3af' }}>
+          <span>L.A. and M.J. Micro Lending Corporation — Confidential</span>
+          <span>Generated: {new Date().toLocaleString('en-PH')}</span>
+        </div>
+      </div>
 
-                  return (
-                    <tr
-                      key={s.id}
-                      className={`border-t border-gray-100 ${
-                        isNext ? 'bg-blue-50' : ''
-                      } ${s.status === 'paid' ? 'opacity-60' : ''}`}
-                    >
-                      <td className="px-5 py-3 text-sm text-gray-500">{i + 1}</td>
-                      <td className="px-5 py-3 text-sm font-semibold text-gray-800">
-                        {formatDate(s.due_date)}
-                        {isNext && (
-                          <span className="ml-2 text-xs bg-blue-700 text-white px-2 py-0.5 rounded-full">
-                            Next
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3 text-right text-sm font-bold text-gray-800">
-                        {formatCurrency(s.amount_due)}
-                      </td>
-                      <td className="px-5 py-3 text-center">
-                        <span className={`text-xs px-3 py-1 rounded-full font-semibold ${
-                          s.status === 'paid'
-                            ? 'bg-green-50 text-green-700'
-                            : s.status === 'overdue'
-                            ? 'bg-red-50 text-red-700'
-                            : 'bg-yellow-50 text-yellow-700'
-                        }`}>
-                          {s.status === 'paid'
-                            ? '✓ Paid'
-                            : s.status === 'overdue'
-                            ? 'Overdue'
-                            : 'Pending'}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3 text-sm">
-                        {s.status === 'paid' ? (
-                          <span className="text-green-600 font-semibold">✓</span>
-                        ) : days < 0 ? (
-                          <span className="text-red-500 font-semibold">
-                            {Math.abs(days)}d overdue
-                          </span>
-                        ) : days === 0 ? (
-                          <span className="text-orange-500 font-semibold">Today!</span>
-                        ) : days <= 3 ? (
-                          <span className="text-orange-500 font-semibold">in {days}d ⚠</span>
-                        ) : (
-                          <span className="text-gray-500">in {days}d</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-      </div>{/* end printRef */}
 
       {/* ── BORROWER INFO MODAL ── */}
       {showInfoModal && (
@@ -739,8 +985,6 @@ export default function BorrowerProfile() {
                   </div>
                 </div>
               </div>
-
-              {/* Payment due — no highlight, just simple row */}
               <div className="mt-3 border-t border-blue-100 pt-3 flex items-center justify-between">
                 <span className="text-sm text-gray-500">{frequencyLabel} Payment Due</span>
                 <span className="text-base font-bold text-blue-700">
@@ -748,6 +992,30 @@ export default function BorrowerProfile() {
                 </span>
               </div>
             </div>
+
+            {/* Payment due simple row */}
+<div className="mt-3 border-t border-blue-100 pt-3 flex items-center justify-between">
+  <span className="text-sm text-gray-500">{frequencyLabel} Payment Due</span>
+  <span className="text-base font-bold text-blue-700">
+    {formatCurrency(perPeriodDue)}
+  </span>
+</div>
+
+{/* Show penalty if any */}
+{penalty?.total_penalty > 0 && (
+  <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+    <div className="flex justify-between text-sm">
+      <span className="text-red-600 font-semibold">⚠ Penalty Charges</span>
+      <span className="text-red-700 font-bold">
+        +{formatCurrency(penalty.total_penalty)}
+      </span>
+    </div>
+    <div className="text-xs text-red-400 mt-0.5">
+      {penalty.overdue_periods} overdue period{penalty.overdue_periods !== 1 ? 's' : ''} ×
+      {penalty.penalty_rate} — already added to remaining balance
+    </div>
+  </div>
+)}
 
             {/* Form Fields */}
             <div className="space-y-3">
@@ -758,8 +1026,7 @@ export default function BorrowerProfile() {
                 <input
                   type="number"
                   className={`w-full border rounded-lg px-3 py-2.5 text-sm outline-none focus:border-blue-500 ${
-                    parseFloat(payment.amount_paid) >
-                    parseFloat(stats?.remaining_balance)
+                    parseFloat(payment.amount_paid) > parseFloat(stats?.remaining_balance)
                       ? 'border-red-400 bg-red-50'
                       : 'border-gray-300'
                   }`}
@@ -767,11 +1034,9 @@ export default function BorrowerProfile() {
                   onChange={e => setPayment(p => ({ ...p, amount_paid: e.target.value }))}
                   placeholder={`Suggested: ${formatCurrency(perPeriodDue)}`}
                 />
-                {parseFloat(payment.amount_paid) >
-                  parseFloat(stats?.remaining_balance) ? (
+                {parseFloat(payment.amount_paid) > parseFloat(stats?.remaining_balance) ? (
                   <p className="text-xs text-red-500 mt-1 font-semibold">
-                    ⚠ Amount exceeds remaining balance of{' '}
-                    {formatCurrency(stats?.remaining_balance)}
+                    ⚠ Amount exceeds remaining balance of {formatCurrency(stats?.remaining_balance)}
                   </p>
                 ) : (
                   <p className="text-xs text-gray-400 mt-1">
@@ -825,8 +1090,7 @@ export default function BorrowerProfile() {
                   payLoading ||
                   !payment.amount_paid ||
                   parseFloat(payment.amount_paid) <= 0 ||
-                  parseFloat(payment.amount_paid) >
-                    parseFloat(stats?.remaining_balance) + 0.01
+                  parseFloat(payment.amount_paid) > parseFloat(stats?.remaining_balance) + 0.01
                 }
                 className="flex-1 py-2.5 bg-blue-700 text-white rounded-lg text-sm font-bold hover:bg-blue-800 disabled:opacity-40 disabled:cursor-not-allowed"
               >
