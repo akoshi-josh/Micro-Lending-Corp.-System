@@ -1,24 +1,11 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 
-/**
- * SignaturePad
- *
- * Props:
- *   value      {string}  – base64 PNG (controlled)
- *   onChange   {fn}      – called with new base64 PNG string, or '' when cleared
- *   label      {string}  – field label shown above the row
- *   width      {number}  – canvas width  (default 200)
- *   height     {number}  – canvas height (default 64)
- *   className  {string}  – wrapper className
- *
- * Layout: label on top, then a row of [ typed-name input | canvas ]
- */
 export default function SignaturePad({
   value,
   onChange,
   label,
-  width = 200,
-  height = 64,
+  width = 500,
+  height = 120,
   className = '',
 }) {
   const canvasRef = useRef(null);
@@ -28,8 +15,28 @@ export default function SignaturePad({
   const [isOpen, setIsOpen] = useState(false);
   const [signerName, setSignerName] = useState('');
 
-  /* ---------- helpers ---------- */
+  // value is now an object: { sig: base64, name: string }
+  // but we also accept plain base64 string for backward compat
+  const parsed = (() => {
+    if (!value) return { sig: '', name: '' };
+    if (typeof value === 'string') {
+      try {
+        const obj = JSON.parse(value);
+        if (obj && obj.sig !== undefined) return obj;
+      } catch {}
+      return { sig: value, name: '' };
+    }
+    return value;
+  })();
 
+  const sigValue = parsed.sig;
+  const nameValue = parsed.name;
+
+  const emit = useCallback((sig, name) => {
+    onChange?.(JSON.stringify({ sig, name }));
+  }, [onChange]);
+
+  /* ---------- helpers ---------- */
   const getPos = (e, canvas) => {
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
@@ -53,7 +60,6 @@ export default function SignaturePad({
   };
 
   /* ---------- draw events ---------- */
-
   const startDraw = useCallback((e) => {
     e.preventDefault();
     drawing.current = true;
@@ -86,11 +92,10 @@ export default function SignaturePad({
     if (!drawing.current) return;
     drawing.current = false;
     const canvas = canvasRef.current;
-    if (canvas) onChange?.(canvas.toDataURL('image/png'));
-  }, [onChange]);
+    if (canvas) emit(canvas.toDataURL('image/png'), signerName);
+  }, [emit, signerName]);
 
   /* ---------- clear ---------- */
-
   const clear = useCallback((e) => {
     e?.stopPropagation();
     const canvas = canvasRef.current;
@@ -98,12 +103,12 @@ export default function SignaturePad({
     const c = canvas.getContext('2d');
     c.clearRect(0, 0, canvas.width, canvas.height);
     setIsEmpty(true);
-    onChange?.('');
-  }, [onChange]);
+    emit('', signerName);
+  }, [emit, signerName]);
 
   /* ---------- restore value when modal opens ---------- */
   useEffect(() => {
-    if (!value || !canvasRef.current || !isOpen) return;
+    if (!sigValue || !canvasRef.current || !isOpen) return;
     const img = new Image();
     img.onload = () => {
       const c = canvasRef.current?.getContext('2d');
@@ -113,10 +118,15 @@ export default function SignaturePad({
         setIsEmpty(false);
       }
     };
-    img.src = value;
+    img.src = sigValue;
   }, [isOpen]);
 
-  /* ---------- touch listeners (passive: false) ---------- */
+  /* sync local name from value */
+  useEffect(() => {
+    setSignerName(nameValue || '');
+  }, [nameValue]);
+
+  /* ---------- touch listeners ---------- */
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !isOpen) return;
@@ -131,25 +141,22 @@ export default function SignaturePad({
   }, [isOpen, startDraw, draw, stopDraw]);
 
   /* ---------- render ---------- */
-
   return (
     <div className={`${className}`}>
-      {/* Field label (same style as the rest of the form) */}
       {label && (
         <label className="block text-xs font-semibold text-gray-500 mb-1">{label}</label>
       )}
 
-      {/* Row: typed name | signature preview trigger */}
       <div className="flex items-end gap-2 border-b-2 border-gray-400 pb-1">
-        {/* Typed name on the left */}
         <input
           className="flex-1 outline-none text-sm bg-transparent placeholder-gray-300 min-w-0"
           placeholder="Print name"
           value={signerName}
-          onChange={e => setSignerName(e.target.value)}
+          onChange={e => {
+            setSignerName(e.target.value);
+            emit(sigValue, e.target.value);
+          }}
         />
-
-        {/* Signature area on the right — click to open modal */}
         <button
           type="button"
           onClick={() => setIsOpen(true)}
@@ -157,23 +164,23 @@ export default function SignaturePad({
           style={{ minWidth: 90, minHeight: 36 }}
           title="Click to sign"
         >
-          {value ? (
-            <img src={value} alt="signature" className="h-7 max-w-[80px] object-contain" />
+          {sigValue ? (
+            <img src={sigValue} alt="signature" className="h-7 max-w-[80px] object-contain" />
           ) : (
             <span className="text-xs text-gray-300 italic">Sign ✏️</span>
           )}
         </button>
       </div>
 
-      {/* Modal overlay */}
+      {/* Modal */}
       {isOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
           onClick={() => setIsOpen(false)}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl p-5"
-            style={{ width: width + 40 }}
+            className="bg-white rounded-2xl shadow-2xl p-5 w-full mx-4"
+            style={{ maxWidth: 640 }}
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
@@ -191,16 +198,16 @@ export default function SignaturePad({
               </button>
             </div>
 
-            {/* Canvas */}
+            {/* Canvas — full width of modal */}
             <div
-              className="relative rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 overflow-hidden"
-              style={{ width, height }}
+              className="relative rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 overflow-hidden w-full"
+              style={{ height: 160 }}
             >
               <canvas
                 ref={canvasRef}
-                width={width}
-                height={height}
-                className="absolute inset-0 cursor-crosshair touch-none"
+                width={600}
+                height={160}
+                className="absolute inset-0 w-full h-full cursor-crosshair touch-none"
                 onMouseDown={startDraw}
                 onMouseMove={draw}
                 onMouseUp={stopDraw}

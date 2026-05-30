@@ -5,6 +5,7 @@ import api from '../utils/api';
 import { formatCurrency, formatDate, formatPercent } from '../utils/formatters';
 import StatusBadge from '../components/StatusBadge';
 import { getSimulatedDate, getToday } from '../utils/simulatedDate';
+import LoanPaidCelebration from '../components/LoanPaidCelebration';
 
 // ─── Credit Rating Helper ──────────────────────────────────────────────────
 function computeLoanRating(loanPayments, scheduleEntries, gracePeriod = 3) {
@@ -73,6 +74,7 @@ export default function BorrowerProfile() {
   const [uploadedDocs, setUploadedDocs] = useState([]);
   const [photo, setPhoto] = useState(null);
   const [penalty, setPenalty] = useState(null);
+  const [showCelebration, setShowCelebration] = useState(false);
   const [simDate] = useState(getSimulatedDate());
   const [collectPenalty, setCollectPenalty] = useState(false);
   const [manualPenalty, setManualPenalty] = useState('');
@@ -133,9 +135,9 @@ export default function BorrowerProfile() {
         payment_date: new Date().toISOString().split('T')[0],
         notes: ''
       });
-      if (res.data.loan_fully_paid) {
-        alert('🎉 Loan fully paid! Borrower account is now closed.');
-      }
+        if (res.data.loan_fully_paid) {
+          setShowCelebration(true);
+        }
       fetchData();
     } catch (err) {
       setPayError(err.response?.data?.error || 'Error recording payment.');
@@ -823,15 +825,20 @@ export default function BorrowerProfile() {
         </div>
       </div>
 
-      {/* ── BORROWER INFO MODAL ── */}
+{/* ── BORROWER INFO MODAL ── */}
       {showInfoModal && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl border border-gray-200 w-full max-w-2xl shadow-xl max-h-screen overflow-y-auto">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 sticky top-0 bg-white">
+          <div className="bg-white rounded-xl border border-gray-200 w-full max-w-2xl shadow-xl max-h-[95vh] flex flex-col">
+            {/* Sticky header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 sticky top-0 bg-white z-10 rounded-t-xl flex-shrink-0">
               <h3 className="text-lg font-bold text-gray-800">👤 Borrower Information</h3>
               <button onClick={() => setShowInfoModal(false)} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
             </div>
-            <div className="p-6 space-y-5">
+
+            {/* Scrollable body */}
+            <div className="overflow-y-auto flex-1 p-6 space-y-5">
+
+              {/* Photo */}
               <div className="flex items-center gap-4 pb-4 border-b border-gray-100">
                 {photo ? (
                   <img src={photo} alt="borrower" className="w-20 h-20 rounded-full object-cover border-2 border-blue-200" />
@@ -846,6 +853,8 @@ export default function BorrowerProfile() {
                   </label>
                 </div>
               </div>
+
+              {/* Personal Information */}
               <div>
                 <div className="text-sm font-bold text-blue-700 mb-3">Personal Information</div>
                 <div className="grid grid-cols-2 gap-3">
@@ -859,6 +868,8 @@ export default function BorrowerProfile() {
                   <InfoRow label="SSS ID No." value={borrower.sss_id_number} />
                 </div>
               </div>
+
+              {/* Address */}
               <div>
                 <div className="text-sm font-bold text-blue-700 mb-3">Address</div>
                 <div className="grid grid-cols-1 gap-3">
@@ -866,6 +877,8 @@ export default function BorrowerProfile() {
                   <InfoRow label="Business Address" value={borrower.bus_address} />
                 </div>
               </div>
+
+              {/* Spouse & Co-Maker */}
               <div>
                 <div className="text-sm font-bold text-blue-700 mb-3">Spouse & Co-Maker</div>
                 <div className="grid grid-cols-2 gap-3">
@@ -876,6 +889,8 @@ export default function BorrowerProfile() {
                   <InfoRow label="Relationship to Borrower" value={borrower.relationship_to_borrower} />
                 </div>
               </div>
+
+              {/* Financial Information */}
               <div>
                 <div className="text-sm font-bold text-blue-700 mb-3">Financial Information</div>
                 <div className="grid grid-cols-2 gap-3">
@@ -886,11 +901,55 @@ export default function BorrowerProfile() {
                   <InfoRow label="ID Number" value={borrower.id_number} />
                 </div>
               </div>
+
+              {/* Amortization & Receipt */}
+              <div>
+                <div className="text-sm font-bold text-blue-700 mb-3">Amortization & Receipt</div>
+
+                {/* Loan summary read-only fields */}
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <InfoRow label="Release Date" value={formatDate(loan?.release_date)} />
+                  <InfoRow label="Term" value={loan?.term_months ? `${loan.term_months} months` : null} />
+                  <InfoRow label="Payment Frequency" value={loan?.payment_frequency?.replace('_', '-')} />
+                  <InfoRow label={`${frequencyLabel} Payment`} value={formatCurrency(perPeriodDue)} />
+                  <InfoRow label="Loan Amount" value={formatCurrency(stats?.loan_amount)} />
+                  <InfoRow label="Total Payable" value={formatCurrency(stats?.total_payable)} />
+                  <InfoRow label="Purpose" value={loan?.purpose} />
+                </div>
+
+<div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                  <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Signatures on File</div>
+                  <div className="grid grid-cols-2 gap-3">
+<SigRow label="Applicant Signature" value={loan?.applicant_signature} name={borrower.full_name} />
+                    <SigRow label="Recommended for Approval" value={loan?.recommended_by} name={loan?.recommended_by_name} />
+                    <SigRow label="Co-Maker Signature" value={loan?.co_maker_signature} name={borrower.co_maker} />
+                    <InfoRow label="Manager" value={loan?.manager} />
+                    <SigRow label="Approved by" value={loan?.approve} name={loan?.approve_name} />
+                    <SigRow label="Received by" value={loan?.received_by} name={loan?.received_by_name} />
+                    <SigRow label="Copy Received" value={loan?.copy_received} name={loan?.copy_received_name} />
+                    <SigRow label="C.I. / Collector" value={loan?.ci_collector} name={loan?.ci_collector_name} />
+                    <SigRow label="Prepared by" value={loan?.prepared_by} name={loan?.prepared_by_name} />
+                    <SigRow label="Verified by" value={loan?.verified_by} name={loan?.verified_by_name} />
+                    <SigRow label="Entered by" value={loan?.entered_by} name={loan?.entered_by_name} />
+                    <SigRow label="Final Approved by" value={loan?.approved_by} name={loan?.approved_by_name} />
+                  </div>
+                </div>
+              </div>
+
+            </div>{/* end scrollable body */}
+
+            {/* Sticky footer */}
+            <div className="flex-shrink-0 px-6 py-4 border-t border-gray-100">
+              <button
+                onClick={() => setShowInfoModal(false)}
+                className="w-full py-2.5 border border-gray-300 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
       )}
-
       {/* ── DOCUMENTS MODAL ── */}
       {showDocsModal && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
@@ -1263,6 +1322,16 @@ export default function BorrowerProfile() {
           </div>
         </div>
       )}
+
+      {showCelebration && (
+  <LoanPaidCelebration
+    borrower={borrower}
+    loan={loan}
+    stats={stats}
+    onNewLoan={() => { setShowCelebration(false); navigate(`/loans/new?borrower_id=${id}`); }}
+    onClose={() => setShowCelebration(false)}
+  />
+)}
     </div>
   );
 }
@@ -1274,6 +1343,44 @@ function InfoRow({ label, value }) {
       <div className="text-sm font-semibold text-gray-800 bg-gray-50 rounded-lg px-3 py-2">
         {value || <span className="text-gray-300">—</span>}
       </div>
+    </div>
+  );
+}
+function SigRow({ label, value }) {
+  const parsed = (() => {
+    if (!value) return { sig: '', name: '' };
+    if (typeof value === 'string') {
+      try {
+        const obj = JSON.parse(value);
+        if (obj && obj.sig !== undefined) return obj;
+      } catch {}
+      return { sig: value, name: '' };
+    }
+    return value;
+  })();
+
+  const isImage = parsed.sig && parsed.sig.startsWith('data:image');
+  const isText = parsed.sig && !parsed.sig.startsWith('data:image');
+
+  return (
+    <div>
+      <div className="text-xs text-gray-400 font-medium mb-0.5">{label}</div>
+      <div className="bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+        <div className="min-h-[48px] flex items-center justify-center border-b border-gray-200 mb-1">
+          {isImage ? (
+            <img src={parsed.sig} alt={label} className="max-h-12 max-w-full object-contain" />
+          ) : isText ? (
+            <span className="text-sm font-semibold text-gray-800">{parsed.sig}</span>
+          ) : (
+            <span className="text-gray-300 text-sm">—</span>
+          )}
+        </div>
+        <div className="text-xs text-center text-gray-600 font-medium truncate">
+          {parsed.name || <span className="text-gray-300">—</span>}
+        </div>
+      </div>
+
+
     </div>
   );
 }

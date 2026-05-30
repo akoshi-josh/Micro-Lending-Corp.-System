@@ -5,29 +5,98 @@ import { formatCurrency, formatDate } from '../utils/formatters';
 import { computeSchedule } from '../utils/loanCalculator';
 import SignaturePad from '../components/SignaturePad';
 
+// ─── Info Row Edit Helper ──────────────────────────────────────────────────
+function InfoRowEdit({ label, value, onChange, readOnly = false, type = 'text', options = [] }) {
+  return (
+    <div>
+      <div className="text-xs text-gray-400 font-medium mb-0.5">{label}</div>
+      {readOnly ? (
+        <div className="text-sm font-semibold text-gray-800 bg-gray-50 rounded-lg px-3 py-2">
+          {value || <span className="text-gray-300">—</span>}
+        </div>
+      ) : type === 'select' ? (
+        <select
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          className="w-full text-sm font-semibold text-gray-800 bg-white border border-gray-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+        >
+          {options.map(o => <option key={o} value={o}>{o || '—'}</option>)}
+        </select>
+      ) : (
+        <input
+          type={type}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          className="w-full text-sm font-semibold text-gray-800 bg-white border border-gray-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+        />
+      )}
+    </div>
+  );
+}
+
 // ─── Borrower Info Modal ───────────────────────────────────────────────────
 function BorrowerInfoModal({ borrower, onClose, onSelect }) {
   const hasBalance =
     parseFloat(borrower.remaining_balance || 0) > 0.01 &&
     borrower.loan_status !== 'paid';
 
+  const [form, setForm] = useState({
+    age: borrower.age || '',
+    sex: borrower.sex || '',
+    civil_status: borrower.civil_status || '',
+    date_of_birth: borrower.date_of_birth ? borrower.date_of_birth.split('T')[0] : '',
+    place_of_birth: borrower.place_of_birth || '',
+    contact_number: borrower.contact_number || '',
+    sss_id_number: borrower.sss_id_number || '',
+    address: borrower.address || '',
+    bus_address: borrower.bus_address || '',
+    spouse_name: borrower.spouse_name || '',
+    spouse_dob: borrower.spouse_dob ? borrower.spouse_dob.split('T')[0] : '',
+    spouse_sss: borrower.spouse_sss || '',
+    co_maker: borrower.co_maker || '',
+    relationship_to_borrower: borrower.relationship_to_borrower || '',
+    type_of_pension: borrower.type_of_pension || '',
+    bank: borrower.bank || '',
+    acct_number: borrower.acct_number || '',
+    id_type: borrower.id_type || '',
+    id_number: borrower.id_number || '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  const set = (field, value) => setForm(f => ({ ...f, [field]: value }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveError('');
+    try {
+      await api.put(`/api/borrowers/${borrower.id}`, {
+        full_name: borrower.full_name,
+        pin: borrower.pin || '',
+        ...form,
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err) {
+      setSaveError(err.response?.data?.error || 'Failed to save changes.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
         {/* Header */}
         <div className="bg-blue-700 px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold text-sm">
-              {borrower.full_name
-                ?.split(' ')
-                .map((n) => n[0])
-                .join('')
-                .toUpperCase()
-                .slice(0, 2)}
+              {borrower.full_name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
             </div>
             <div>
               <h3 className="text-white font-bold text-base">{borrower.full_name}</h3>
-              <p className="text-blue-200 text-xs">{borrower.contact_number || 'No contact'}</p>
+              <p className="text-blue-200 text-xs">{form.contact_number || 'No contact'}</p>
             </div>
           </div>
           <button
@@ -39,122 +108,80 @@ function BorrowerInfoModal({ borrower, onClose, onSelect }) {
         </div>
 
         {/* Status Banner */}
-        <div
-          className={`px-6 py-3 flex items-center justify-between text-sm font-semibold border-b ${
-            hasBalance
-              ? 'bg-red-50 border-red-200 text-red-700'
-              : 'bg-green-50 border-green-200 text-green-700'
-          }`}
-        >
-          <span>
-            {hasBalance ? '⚠ Has outstanding balance — cannot reloan' : '✓ Eligible for new loan'}
-          </span>
+        <div className={`px-6 py-3 flex items-center justify-between text-sm font-semibold border-b ${
+          hasBalance ? 'bg-red-50 border-red-200 text-red-700' : 'bg-green-50 border-green-200 text-green-700'
+        }`}>
+          <span>{hasBalance ? '⚠ Has outstanding balance — cannot reloan' : '✓ Eligible for new loan'}</span>
           <span className={`font-bold ${hasBalance ? 'text-red-600' : 'text-green-600'}`}>
             {hasBalance
-              ? `₱${parseFloat(borrower.remaining_balance).toLocaleString('en-PH', {
-                  minimumFractionDigits: 2,
-                })} remaining`
-              : borrower.loan_status === 'paid'
-              ? 'Fully Paid'
-              : 'No active loan'}
+              ? `₱${parseFloat(borrower.remaining_balance).toLocaleString('en-PH', { minimumFractionDigits: 2 })} remaining`
+              : borrower.loan_status === 'paid' ? 'Fully Paid' : 'No active loan'}
           </span>
         </div>
 
-        {/* Details */}
-        <div className="p-6 space-y-4 max-h-96 overflow-y-auto">
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { label: 'Age', value: borrower.age },
-              { label: 'Sex', value: borrower.sex },
-              { label: 'Civil Status', value: borrower.civil_status },
-              { label: 'Date of Birth', value: borrower.date_of_birth ? formatDate(borrower.date_of_birth) : null },
-              { label: 'SSS ID', value: borrower.sss_id_number },
-              { label: 'ID Type / Number', value: borrower.id_type ? `${borrower.id_type}: ${borrower.id_number || '—'}` : null },
-            ].map((row) => (
-              <div key={row.label} className="bg-gray-50 rounded-lg px-3 py-2">
-                <div className="text-xs text-gray-400 font-medium">{row.label}</div>
-                <div className="text-sm font-semibold text-gray-800">{row.value || '—'}</div>
-              </div>
-            ))}
+        {/* Body */}
+        <div className="p-6 space-y-5 max-h-[65vh] overflow-y-auto">
+
+          {/* Personal Information */}
+          <div>
+            <div className="text-sm font-bold text-blue-700 mb-3">Personal Information</div>
+            <div className="grid grid-cols-2 gap-3">
+              <InfoRowEdit label="Full Name" value={borrower.full_name} readOnly />
+              <InfoRowEdit label="Age" value={form.age} onChange={v => set('age', v)} type="number" />
+              <InfoRowEdit label="Sex" value={form.sex} onChange={v => set('sex', v)}
+                type="select" options={['', 'Male', 'Female']} />
+              <InfoRowEdit label="Civil Status" value={form.civil_status} onChange={v => set('civil_status', v)}
+                type="select" options={['', 'Single', 'Married', 'Widowed', 'Separated']} />
+              <InfoRowEdit label="Date of Birth" value={form.date_of_birth} onChange={v => set('date_of_birth', v)} type="date" />
+              <InfoRowEdit label="Place of Birth" value={form.place_of_birth} onChange={v => set('place_of_birth', v)} />
+              <InfoRowEdit label="Contact Number" value={form.contact_number} onChange={v => set('contact_number', v)} />
+              <InfoRowEdit label="SSS ID No." value={form.sss_id_number} onChange={v => set('sss_id_number', v)} />
+            </div>
           </div>
 
-          <div className="bg-gray-50 rounded-lg px-3 py-2">
-            <div className="text-xs text-gray-400 font-medium">Permanent Address</div>
-            <div className="text-sm font-semibold text-gray-800">{borrower.address || '—'}</div>
+          {/* Address */}
+          <div>
+            <div className="text-sm font-bold text-blue-700 mb-3">Address</div>
+            <div className="grid grid-cols-1 gap-3">
+              <InfoRowEdit label="Permanent Address" value={form.address} onChange={v => set('address', v)} />
+              <InfoRowEdit label="Business Address" value={form.bus_address} onChange={v => set('bus_address', v)} />
+            </div>
           </div>
 
-          {borrower.bus_address && (
-            <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <div className="text-xs text-gray-400 font-medium">Business Address</div>
-              <div className="text-sm font-semibold text-gray-800">{borrower.bus_address}</div>
+          {/* Spouse & Co-Maker */}
+          <div>
+            <div className="text-sm font-bold text-blue-700 mb-3">Spouse & Co-Maker</div>
+            <div className="grid grid-cols-2 gap-3">
+              <InfoRowEdit label="Name of Spouse" value={form.spouse_name} onChange={v => set('spouse_name', v)} />
+              <InfoRowEdit label="Spouse Date of Birth" value={form.spouse_dob} onChange={v => set('spouse_dob', v)} type="date" />
+              <InfoRowEdit label="Spouse SSS ID" value={form.spouse_sss} onChange={v => set('spouse_sss', v)} />
+              <InfoRowEdit label="Co-Maker" value={form.co_maker} onChange={v => set('co_maker', v)} />
+              <InfoRowEdit label="Relationship to Borrower" value={form.relationship_to_borrower} onChange={v => set('relationship_to_borrower', v)} />
+            </div>
+          </div>
+
+          {/* Financial Information */}
+          <div>
+            <div className="text-sm font-bold text-blue-700 mb-3">Financial Information</div>
+            <div className="grid grid-cols-2 gap-3">
+              <InfoRowEdit label="Type of Pension/Salary" value={form.type_of_pension} onChange={v => set('type_of_pension', v)} />
+              <InfoRowEdit label="Bank" value={form.bank} onChange={v => set('bank', v)} />
+              <InfoRowEdit label="Account Number" value={form.acct_number} onChange={v => set('acct_number', v)} />
+              <InfoRowEdit label="ID Type" value={form.id_type} onChange={v => set('id_type', v)} />
+              <InfoRowEdit label="ID Number" value={form.id_number} onChange={v => set('id_number', v)} />
+            </div>
+          </div>
+
+          {saveError && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              ⚠ {saveError}
             </div>
           )}
-
-          {borrower.co_maker && (
-            <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <div className="text-xs text-gray-400 font-medium">Co-Maker</div>
-              <div className="text-sm font-semibold text-gray-800">
-                {borrower.co_maker}
-                {borrower.relationship_to_borrower && (
-                  <span className="text-gray-400 font-normal"> ({borrower.relationship_to_borrower})</span>
-                )}
-              </div>
+          {saved && (
+            <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+              ✓ Changes saved successfully.
             </div>
           )}
-
-          {/* Loan Summary */}
-          <div className="border border-gray-200 rounded-xl overflow-hidden">
-            <div className="bg-gray-50 px-3 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200">
-              Loan Summary
-            </div>
-            <div className="grid grid-cols-2 gap-px bg-gray-100">
-              {[
-                {
-                  label: 'Loan Amount',
-                  value: borrower.loan_amount
-                    ? `₱${parseFloat(borrower.loan_amount).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`
-                    : '—',
-                },
-                {
-                  label: 'Total Paid',
-                  value: borrower.total_paid
-                    ? `₱${parseFloat(borrower.total_paid).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`
-                    : '—',
-                },
-                {
-                  label: 'Remaining Balance',
-                  value: borrower.remaining_balance != null
-                    ? `₱${parseFloat(borrower.remaining_balance).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`
-                    : '—',
-                },
-                {
-                  label: 'Status',
-                  value: borrower.loan_status
-                    ? borrower.loan_status.charAt(0).toUpperCase() + borrower.loan_status.slice(1)
-                    : 'None',
-                },
-              ].map((row) => (
-                <div key={row.label} className="bg-white px-3 py-2.5">
-                  <div className="text-xs text-gray-400">{row.label}</div>
-                  <div
-                    className={`text-sm font-bold ${
-                      row.label === 'Remaining Balance' && hasBalance
-                        ? 'text-red-600'
-                        : row.label === 'Status' && borrower.loan_status === 'paid'
-                        ? 'text-green-600'
-                        : row.label === 'Status' && borrower.loan_status === 'overdue'
-                        ? 'text-red-600'
-                        : row.label === 'Status' && borrower.loan_status === 'active'
-                        ? 'text-blue-600'
-                        : 'text-gray-800'
-                    }`}
-                  >
-                    {row.value}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
 
         {/* Actions */}
@@ -164,6 +191,13 @@ function BorrowerInfoModal({ borrower, onClose, onSelect }) {
             className="flex-1 py-2.5 border border-gray-300 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
           >
             Close
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-5 py-2.5 bg-gray-700 text-white rounded-xl text-sm font-bold hover:bg-gray-800 disabled:opacity-50 transition-colors"
+          >
+            {saving ? 'Saving...' : '💾 Save Changes'}
           </button>
           {!hasBalance ? (
             <button
@@ -182,6 +216,7 @@ function BorrowerInfoModal({ borrower, onClose, onSelect }) {
     </div>
   );
 }
+
 
 // ─── Existing Borrower Picker ──────────────────────────────────────────────
 function ExistingBorrowerPicker({ borrowers, selectedId, onSelect, error }) {
@@ -425,21 +460,30 @@ export default function NewLoan() {
     matured: '',
     start_date: '',
     received_amount: '',
-    applicant_signature: '',
+applicant_signature: '',
     recommended_by: '',
+    recommended_by_name: '',
     co_maker_signature: '',
     approve: '',
+    approve_name: '',
     received_by: '',
+    received_by_name: '',
     copy_received: '',
+    copy_received_name: '',
     ci_collector: '',
+    ci_collector_name: '',
     manager: 'Mila J. Aranguiz',
     account_title_0: '', debit_0: '', credit_0: '',
     account_title_1: '', debit_1: '', credit_1: '',
     account_title_2: '', debit_2: '', credit_2: '',
-    prepared_by: '',
+prepared_by: '',
+    prepared_by_name: '',
     verified_by: '',
+    verified_by_name: '',
     entered_by: '',
+    entered_by_name: '',
     approved_by: '',
+    approved_by_name: '',
   });
 
   const [schedule, setSchedule] = useState(null);
@@ -542,7 +586,7 @@ export default function NewLoan() {
         borrower_id = b.data.id;
       }
 
-      await api.post('/api/loans', {
+await api.post('/api/loans', {
         borrower_id,
         loan_amount: form.loan_amount,
         interest_rate: form.interest_rate,
@@ -550,8 +594,28 @@ export default function NewLoan() {
         term_months: form.term_months,
         release_date: form.release_date,
         purpose: form.purpose,
+        applicant_signature: form.applicant_signature,
+        recommended_by: form.recommended_by,
+        co_maker_signature: form.co_maker_signature,
+        manager: form.manager,
+        approve: form.approve,
+        received_by: form.received_by,
+        copy_received: form.copy_received,
+        ci_collector: form.ci_collector,
+        prepared_by: form.prepared_by,
+        verified_by: form.verified_by,
+        entered_by: form.entered_by,
+        approved_by: form.approved_by,
+        recommended_by_name: form.recommended_by_name,
+        approve_name: form.approve_name,
+        received_by_name: form.received_by_name,
+        copy_received_name: form.copy_received_name,
+        ci_collector_name: form.ci_collector_name,
+        prepared_by_name: form.prepared_by_name,
+        verified_by_name: form.verified_by_name,
+        entered_by_name: form.entered_by_name,
+        approved_by_name: form.approved_by_name,
       });
-
       navigate('/borrowers');
     } catch (err) {
       alert(err.response?.data?.error || 'Error creating loan');
@@ -1039,12 +1103,7 @@ export default function NewLoan() {
             <p className="text-xs text-gray-400 mt-1 italic">In full payment of amount described above.</p>
           </div>
           <div className="grid grid-cols-3 gap-4">
-            <SignaturePad
-              label="Signature (Applicant)"
-              value={form.applicant_signature}
-              onChange={(v) => set('applicant_signature', v)}
-            />
-            <SignaturePad
+<SignaturePad
               label="Recommended for Approval"
               value={form.recommended_by}
               onChange={(v) => set('recommended_by', v)}
@@ -1062,7 +1121,7 @@ export default function NewLoan() {
                 onChange={(e) => set('manager', e.target.value)}
               />
             </div>
-            <SignaturePad
+<SignaturePad
               label="Approve"
               value={form.approve}
               onChange={(v) => set('approve', v)}
@@ -1135,7 +1194,7 @@ export default function NewLoan() {
         <div>
           <div className="text-sm font-bold text-gray-700 mb-3">Signatures</div>
           <div className="grid grid-cols-4 gap-4">
-            <SignaturePad
+<SignaturePad
               label="Prepared by"
               value={form.prepared_by}
               onChange={(v) => set('prepared_by', v)}

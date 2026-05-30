@@ -54,10 +54,14 @@ router.get('/:id', verifyToken, async (req, res) => {
 });
 
 // POST /api/loans
+// POST /api/loans
 router.post('/', verifyToken, async (req, res) => {
   const {
     borrower_id, loan_amount, interest_rate,
-    payment_frequency, term_months, release_date, purpose
+    payment_frequency, term_months, release_date, purpose,
+    applicant_signature, recommended_by, co_maker_signature,
+    manager, approve, received_by, copy_received, ci_collector,
+    prepared_by, verified_by, entered_by, approved_by
   } = req.body;
 
   if (!borrower_id || !loan_amount || !interest_rate || !payment_frequency || !term_months || !release_date) {
@@ -70,9 +74,25 @@ router.post('/', verifyToken, async (req, res) => {
     await client.query('BEGIN');
 
     const loanResult = await client.query(
-      `INSERT INTO loans (borrower_id, loan_amount, interest_rate, payment_frequency, term_months, release_date, purpose, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'active') RETURNING *`,
-      [borrower_id, loan_amount, interest_rate, payment_frequency, term_months, release_date, purpose]
+      `INSERT INTO loans (
+        borrower_id, loan_amount, interest_rate, payment_frequency,
+        term_months, release_date, purpose, status,
+        applicant_signature, recommended_by, co_maker_signature,
+        manager, approve, received_by, copy_received, ci_collector,
+        prepared_by, verified_by, entered_by, approved_by
+      ) VALUES (
+        $1,$2,$3,$4,$5,$6,$7,'active',
+        $8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
+      ) RETURNING *`,
+      [
+        borrower_id, loan_amount, interest_rate, payment_frequency,
+        term_months, release_date, purpose,
+        applicant_signature || null, recommended_by || null, co_maker_signature || null,
+        manager || null, approve || null, received_by || null,
+        copy_received || null, ci_collector || null,
+        prepared_by || null, verified_by || null,
+        entered_by || null, approved_by || null
+      ]
     );
 
     const loan = loanResult.rows[0];
