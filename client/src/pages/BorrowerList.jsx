@@ -17,11 +17,18 @@ export default function BorrowerList() {
       .finally(() => setLoading(false));
   }, []);
 
-  const filtered = borrowers.filter(b =>
-    b.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-    b.contact_number?.includes(search)
-  );
-
+const filtered = borrowers
+    .filter(b =>
+      b.full_name?.toLowerCase().includes(search.toLowerCase()) ||
+      (b.contact_number || '').includes(search)
+    )
+    .sort((a, b) => {
+      const aPaid = a.loan_status === 'paid' || parseFloat(a.remaining_balance || 0) <= 0.01;
+      const bPaid = b.loan_status === 'paid' || parseFloat(b.remaining_balance || 0) <= 0.01;
+      if (aPaid && !bPaid) return 1;   // a goes below b
+      if (!aPaid && bPaid) return -1;  // a goes above b
+      return 0;                         // keep original order within each group
+    });
   return (
     <div>
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
@@ -80,7 +87,13 @@ export default function BorrowerList() {
                     <div className="text-gray-400">{b.contact_number}</div>
                   </td>
                   <td className="px-4 py-2.5 text-right text-gray-700">{formatCurrency(b.loan_amount)}</td>
-                  <td className="px-4 py-2.5 text-right font-medium text-gray-800">{formatCurrency(b.remaining_balance)}</td>
+                  <td className="px-4 py-2.5 text-right font-medium">
+  {b.loan_status === 'paid' || parseFloat(b.remaining_balance) <= 0 ? (
+    <span className="text-green-600 font-bold">₱0.00</span>
+  ) : (
+    <span className="text-gray-800">{formatCurrency(b.remaining_balance)}</span>
+  )}
+</td>
                   <td className="px-4 py-2.5 text-gray-500 capitalize">{b.payment_frequency?.replace('_', '-')}</td>
                   <td className="px-4 py-2.5 text-gray-500">{formatPercent(b.interest_rate)}</td>
                   <td className="px-4 py-2.5 text-center"><StatusBadge status={b.loan_status || 'active'} /></td>

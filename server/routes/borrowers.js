@@ -6,27 +6,43 @@ const verifyToken = require('../middleware/auth');
 // GET /api/borrowers
 router.get('/', verifyToken, async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT
-        b.*,
-        l.id AS loan_id,
-        l.loan_amount,
-        l.interest_rate,
-        l.payment_frequency,
-        l.term_months,
-        l.status AS loan_status,
-        COALESCE(SUM(p.amount_paid), 0) AS total_paid,
-        ROUND(
-          (COALESCE(l.loan_amount, 0) +
-           (COALESCE(l.loan_amount, 0) * COALESCE(l.interest_rate, 0) / 100))
-          - COALESCE(SUM(p.amount_paid), 0),
-        2) AS remaining_balance
-      FROM borrowers b
-      LEFT JOIN loans l ON l.borrower_id = b.id
-      LEFT JOIN payments p ON p.loan_id = l.id
-      GROUP BY b.id, l.id
-      ORDER BY b.created_at DESC
-    `);
+const result = await pool.query(`
+  SELECT
+    b.*,
+    active_loan.id AS loan_id,
+    active_loan.loan_amount,
+    active_loan.interest_rate,
+    active_loan.payment_frequency,
+    active_loan.term_months,
+    active_loan.status AS loan_status,
+    COALESCE(paid.total_paid, 0) AS total_paid,
+    ROUND(
+      (COALESCE(active_loan.loan_amount, 0) +
+       (COALESCE(active_loan.loan_amount, 0) * COALESCE(active_loan.interest_rate, 0) / 100))
+      - COALESCE(paid.total_paid, 0),
+    2) AS remaining_balance
+  FROM borrowers b
+  -- Get the most recent active/overdue loan, fall back to most recent paid loan
+  LEFT JOIN LATERAL (
+    SELECT * FROM loans
+    WHERE borrower_id = b.id
+    ORDER BY
+      CASE status
+        WHEN 'active'  THEN 1
+        WHEN 'overdue' THEN 2
+        WHEN 'paid'    THEN 3
+      END,
+      created_at DESC
+    LIMIT 1
+  ) active_loan ON true
+  -- Sum payments only for that loan
+  LEFT JOIN LATERAL (
+    SELECT COALESCE(SUM(p.amount_paid), 0) AS total_paid
+    FROM payments p
+    WHERE p.loan_id = active_loan.id
+  ) paid ON true
+  ORDER BY b.created_at DESC
+`);
     res.json(result.rows);
   } catch (err) {
     console.error(err);
@@ -49,19 +65,43 @@ router.get('/:id', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Borrower not found.' });
     }
 
-    const loansResult = await pool.query(
-      'SELECT * FROM loans WHERE borrower_id = $1 ORDER BY created_at DESC',
-      [id]
-    );
-    const loan = loansResult.rows[0];
+      const loansResult = await pool.query(
+        'SELECT * FROM loans WHERE borrower_id = $1 ORDER BY created_at DESC',
+        [id]
+      );
 
-    const paymentsResult = await pool.query(`
-      SELECT p.*, l.loan_amount, l.interest_rate, l.payment_frequency
-      FROM payments p
-      JOIN loans l ON l.id = p.loan_id
-      WHERE p.borrower_id = $1
-      ORDER BY p.payment_date ASC, p.id ASC
-    `, [id]);
+      // Always use the most recent active/overdue loan as current
+      // Fall back to most recent paid loan only if no active loans exist
+      const loan = loansResult.rows.find(l => l.status === 'active')
+        || loansResult.rows.find(l => l.status === 'overdue')
+        || loansResult.rows[0];
+
+// Fetch current loan payments (for transaction history display)
+const paymentsResult = await pool.query(`
+  SELECT
+    p.id, p.loan_id, p.borrower_id,
+    p.amount_paid, p.interest_collected,
+    p.penalty_amount, p.payment_date, p.notes, p.created_at,
+    l.loan_amount, l.interest_rate, l.payment_frequency
+  FROM payments p
+  JOIN loans l ON l.id = p.loan_id
+  WHERE p.borrower_id = $1
+    AND p.loan_id = $2
+  ORDER BY p.payment_date ASC, p.id ASC
+`, [id, loan.id]);
+
+// Fetch ALL payments across ALL loans (for loan history section)
+const allPaymentsResult = await pool.query(`
+  SELECT
+    p.id, p.loan_id, p.borrower_id,
+    p.amount_paid, p.interest_collected,
+    p.penalty_amount, p.payment_date, p.notes, p.created_at,
+    l.loan_amount, l.interest_rate, l.payment_frequency
+  FROM payments p
+  JOIN loans l ON l.id = p.loan_id
+  WHERE p.borrower_id = $1
+  ORDER BY p.payment_date ASC, p.id ASC
+`, [id]);
 
     // Get settings
     const settingsResult = await pool.query(
@@ -70,8 +110,10 @@ router.get('/:id', verifyToken, async (req, res) => {
     const sysSettings = settingsResult.rows[0] || {
       penalty_rate: 2, grace_period: 3
     };
+
     const penaltyRate = parseFloat(sysSettings.penalty_rate) / 100;
     const gracePeriod = parseInt(sysSettings.grace_period);
+
 
     if (loan && loan.status !== 'paid') {
       // Step 1: Mark overdue schedules
@@ -92,26 +134,44 @@ router.get('/:id', verifyToken, async (req, res) => {
         ORDER BY due_date ASC
       `, [loan.id]);
 
+
+
+overdueSchedules.rows.forEach(r => {
+
+});
+
       // Step 3: Create penalty charges for overdue periods that exceed grace
-      for (const schedule of overdueSchedules.rows) {
-        const daysOverdue = parseInt(schedule.days_overdue) || 0;
-        if (daysOverdue > gracePeriod) {
-          const existing = await pool.query(
-            'SELECT id FROM penalty_charges WHERE schedule_id = $1',
-            [schedule.id]
-          );
-          if (existing.rows.length === 0) {
-            const penaltyAmount = parseFloat(
-              (parseFloat(schedule.amount_due) * penaltyRate).toFixed(2)
-            );
-            await pool.query(`
-              INSERT INTO penalty_charges
-                (loan_id, borrower_id, schedule_id, amount, days_overdue, charge_date)
-              VALUES ($1, $2, $3, $4, $5, ${today})
-            `, [loan.id, id, schedule.id, penaltyAmount, daysOverdue]);
-          }
-        }
-      }
+for (const schedule of overdueSchedules.rows) {
+  const daysOverdue = parseInt(schedule.days_overdue) || 0;
+  if (daysOverdue > gracePeriod) {
+    const penaltyAmount = parseFloat(
+      (parseFloat(schedule.amount_due) * penaltyRate).toFixed(2)
+    );
+
+    const existing = await pool.query(
+      'SELECT id, is_paid FROM penalty_charges WHERE schedule_id = $1',
+      [schedule.id]
+    );
+
+    if (existing.rows.length === 0) {
+      // No charge yet — insert fresh
+      await pool.query(`
+        INSERT INTO penalty_charges
+          (loan_id, borrower_id, schedule_id, amount, days_overdue, charge_date)
+        VALUES ($1, $2, $3, $4, $5, ${today})
+      `, [loan.id, id, schedule.id, penaltyAmount, daysOverdue]);
+
+    } else if (!existing.rows[0].is_paid) {
+      // Charge exists but unpaid — update amount and days in case date changed
+      await pool.query(`
+        UPDATE penalty_charges
+        SET amount = $1, days_overdue = $2, charge_date = ${today}
+        WHERE schedule_id = $3 AND is_paid = FALSE
+      `, [penaltyAmount, daysOverdue, schedule.id]);
+    }
+    // If is_paid = TRUE, leave it alone — that penalty was already collected
+  }
+}
 
       // Step 4: Update loan status
       const hasOverdue = overdueSchedules.rows.length > 0;
@@ -184,28 +244,28 @@ router.get('/:id', verifyToken, async (req, res) => {
     };
 
     // Base stats
-    const statsResult = await pool.query(`
-      SELECT
-        COALESCE(l.loan_amount, 0) AS loan_amount,
-        COALESCE(l.interest_rate, 0) AS interest_rate,
-        COALESCE(l.term_months, 0) AS term_months,
-        COALESCE(SUM(p.amount_paid), 0) AS total_paid,
-        COALESCE(SUM(p.interest_collected), 0) AS interest_earned,
-        ROUND(
-          COALESCE(l.loan_amount, 0) +
-          (COALESCE(l.loan_amount, 0) * COALESCE(l.interest_rate, 0) / 100),
-        2) AS total_payable,
-        ROUND(
-          (COALESCE(l.loan_amount, 0) +
-          (COALESCE(l.loan_amount, 0) * COALESCE(l.interest_rate, 0) / 100))
-          - COALESCE(SUM(p.amount_paid), 0),
-        2) AS base_remaining
-      FROM borrowers b
-      LEFT JOIN loans l ON l.borrower_id = b.id
-      LEFT JOIN payments p ON p.loan_id = l.id
-      WHERE b.id = $1
-      GROUP BY l.loan_amount, l.interest_rate, l.term_months
-    `, [id]);
+// Base stats — scoped to current loan only
+const statsResult = await pool.query(`
+  SELECT
+    COALESCE(l.loan_amount, 0) AS loan_amount,
+    COALESCE(l.interest_rate, 0) AS interest_rate,
+    COALESCE(l.term_months, 0) AS term_months,
+    COALESCE(SUM(p.amount_paid), 0) AS total_paid,
+    COALESCE(SUM(p.interest_collected), 0) AS interest_earned,
+    ROUND(
+      COALESCE(l.loan_amount, 0) +
+      (COALESCE(l.loan_amount, 0) * COALESCE(l.interest_rate, 0) / 100),
+    2) AS total_payable,
+    ROUND(
+      (COALESCE(l.loan_amount, 0) +
+      (COALESCE(l.loan_amount, 0) * COALESCE(l.interest_rate, 0) / 100))
+      - COALESCE(SUM(p.amount_paid), 0),
+    2) AS base_remaining
+  FROM loans l
+  LEFT JOIN payments p ON p.loan_id = l.id
+  WHERE l.id = $1
+  GROUP BY l.loan_amount, l.interest_rate, l.term_months
+`, [loan.id]);
 
     const rawStats = statsResult.rows[0] || {
       loan_amount: 0, interest_rate: 0, term_months: 0,
@@ -213,31 +273,37 @@ router.get('/:id', verifyToken, async (req, res) => {
       total_payable: 0, base_remaining: 0
     };
 
-// remaining = (total_payable - total_paid) + unpaid_penalties
-// total_paid already includes penalty portions from payments
-// so we recalculate base_remaining correctly
 const totalPaidFromPayments = parseFloat(rawStats.total_paid);
-const baseRemainingCalc = parseFloat(rawStats.total_payable) -
-  totalPaidFromPayments;
-const remainingBalance = baseRemainingCalc + totalUnpaidPenalty;
 
-    const stats = {
-      ...rawStats,
-      remaining_balance: parseFloat(remainingBalance.toFixed(2)),
-      total_payable_with_penalty: parseFloat(
-        (parseFloat(rawStats.total_payable) + totalAllPenalty).toFixed(2)
-      ),
-      penalty: parseFloat(totalUnpaidPenalty.toFixed(2)),
-    };
+// remaining = (total_payable + ALL penalties ever charged) - total_paid
+// This way penalty stays "baked in" even after it's paid
+// because total_paid already includes the penalty portion collected
+const remainingBalance = parseFloat(rawStats.total_payable) 
+  + totalAllPenalty          // ALL penalties (paid + unpaid)
+  - totalPaidFromPayments;   // total_paid already includes penalty money
+
+const stats = {
+  ...rawStats,
+  remaining_balance: parseFloat(Math.max(0, remainingBalance).toFixed(2)),
+  total_payable_with_penalty: parseFloat(
+    (parseFloat(rawStats.total_payable) + totalAllPenalty).toFixed(2)
+  ),
+  penalty: parseFloat(totalUnpaidPenalty.toFixed(2)),
+  total_all_penalty: parseFloat(totalAllPenalty.toFixed(2)),
+};
 
     // Next payment
     let nextPayment = null;
     let schedule = [];
     if (loan) {
+      // Next Period = next FUTURE pending payment (not overdue)
+      // Overdue periods are shown separately in the penalty section
       const nextResult = await pool.query(`
         SELECT due_date, amount_due, status
         FROM payment_schedule
-        WHERE loan_id = $1 AND status IN ('pending','overdue')
+        WHERE loan_id = $1
+          AND status = 'pending'
+          AND due_date >= ${today}
         ORDER BY due_date ASC LIMIT 1
       `, [loan.id]);
       nextPayment = nextResult.rows[0] || null;
@@ -249,15 +315,22 @@ const remainingBalance = baseRemainingCalc + totalUnpaidPenalty;
       schedule = schedResult.rows;
     }
 
-    const finalLoans = await pool.query(
-      'SELECT * FROM loans WHERE borrower_id = $1 ORDER BY created_at DESC',
-      [id]
-    );
+const finalLoans = await pool.query(`
+  SELECT * FROM loans WHERE borrower_id = $1
+  ORDER BY
+    CASE status
+      WHEN 'active'  THEN 1
+      WHEN 'overdue' THEN 2
+      WHEN 'paid'    THEN 3
+    END,
+    created_at DESC
+`, [id]);
 
     res.json({
       borrower: borrowerResult.rows[0],
       loans: finalLoans.rows,
       payments: paymentsResult.rows,
+      all_payments: allPaymentsResult.rows,
       stats,
       next_payment: nextPayment,
       schedule,

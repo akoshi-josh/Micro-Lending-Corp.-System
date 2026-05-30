@@ -40,7 +40,7 @@ router.get('/loan/:loanId', verifyToken, async (req, res) => {
 
 // POST /api/payments
 router.post('/', verifyToken, async (req, res) => {
-  const { loan_id, borrower_id, amount_paid, payment_date, notes } = req.body;
+  const { loan_id, borrower_id, amount_paid, penalty_collected, payment_date, notes } = req.body;
 
   if (!loan_id || !borrower_id || !amount_paid || !payment_date) {
     return res.status(400).json({ error: 'All fields are required.' });
@@ -81,41 +81,45 @@ router.post('/', verifyToken, async (req, res) => {
       (parseFloat(loan.interest_rate) / 100);
     const totalPayable = parseFloat(loan.loan_amount) + totalInterest;
 
-    // Already paid (principal + interest payments)
+    // Already paid
     const alreadyPaidResult = await client.query(
-      `SELECT COALESCE(SUM(amount_paid), 0) AS paid
-       FROM payments WHERE loan_id = $1`,
+      `SELECT COALESCE(SUM(amount_paid), 0) AS paid FROM payments WHERE loan_id = $1`,
       [loan_id]
     );
     const alreadyPaid = parseFloat(alreadyPaidResult.rows[0].paid);
 
+    // Get unpaid penalty charges
+    const unpaidPenaltyResult = await client.query(
+      `SELECT COALESCE(SUM(amount), 0) AS total
+       FROM penalty_charges WHERE loan_id = $1 AND is_paid = FALSE`,
+      [loan_id]
+    );
+    const totalUnpaidPenalty = parseFloat(unpaidPenaltyResult.rows[0].total);
 
-// Get unpaid penalty charges
-const unpaidPenaltyResult = await client.query(
-  `SELECT COALESCE(SUM(amount), 0) AS total
-   FROM penalty_charges
-   WHERE loan_id = $1 AND is_paid = FALSE`,
-  [loan_id]
-);
-const totalUnpaidPenalty = parseFloat(
-  unpaidPenaltyResult.rows[0].total
-);
+    // Get ALL penalty charges (paid + unpaid)
+    const allPenaltyResult = await client.query(
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM penalty_charges WHERE loan_id = $1`,
+      [loan_id]
+    );
+    const totalAllPenalty = parseFloat(allPenaltyResult.rows[0].total);
 
-// Total remaining = base remaining + unpaid penalties
-const baseRemaining = totalPayable - alreadyPaid;
-const totalRemaining = parseFloat(
-  (baseRemaining + totalUnpaidPenalty).toFixed(2)
-);
+    const totalRemaining = parseFloat(
+      Math.max(0, totalPayable + totalAllPenalty - alreadyPaid).toFixed(2)
+    );
 
-const amountPaid = parseFloat(amount_paid);
+    // Parse incoming amounts — declared ONCE here
+    const amountPaid = parseFloat(amount_paid);
+    const manualPenaltyCollected = parseFloat(penalty_collected || 0);
 
-// Safety check
-if (amountPaid > totalRemaining + 0.01) {
-  await client.query('ROLLBACK');
-  return res.status(400).json({
-    error: `Payment ₱${amountPaid.toFixed(2)} exceeds balance ₱${totalRemaining.toFixed(2)}.`
-  });
-}
+    // Only the loan portion (excluding manual penalty) is checked against balance
+    const loanPortionOnly = amountPaid - manualPenaltyCollected;
+
+    if (loanPortionOnly > totalRemaining + 0.01) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: `Payment ₱${loanPortionOnly.toFixed(2)} exceeds balance ₱${totalRemaining.toFixed(2)}.`
+      });
+    }
 
     // Interest per period
     const interestPerPeriod = totalInterest / totalPeriods;
@@ -128,21 +132,32 @@ if (amountPaid > totalRemaining + 0.01) {
       [loan_id]
     );
 
-    // Count periods this payment covers
+    // Count how many periods this payment covers
     let remainingPayment = amountPaid;
     let periodsToMark = 0;
+    const scheduleIdsToMark = [];
 
     for (const schedule of unpaidSchedules.rows) {
       const due = parseFloat(schedule.amount_due);
       if (remainingPayment >= due - 0.01) {
         remainingPayment -= due;
         periodsToMark++;
+        scheduleIdsToMark.push(schedule.id);
       } else {
         if (remainingPayment > 0) {
           periodsToMark = Math.max(periodsToMark, 1);
+          scheduleIdsToMark.push(schedule.id);
         }
         break;
       }
+    }
+
+    // Mark covered schedule periods as paid
+    if (scheduleIdsToMark.length > 0) {
+      await client.query(
+        `UPDATE payment_schedule SET status = 'paid' WHERE id = ANY($1::int[])`,
+        [scheduleIdsToMark]
+      );
     }
 
     // Interest collected
@@ -152,76 +167,85 @@ if (amountPaid > totalRemaining + 0.01) {
       amountPaid
     );
 
-// How much of this payment goes to penalty vs loan
-// Penalty is paid first, then the rest goes to loan principal+interest
-const penaltyPortionPaid = Math.min(totalUnpaidPenalty, amountPaid);
-const loanPortionPaid = amountPaid - penaltyPortionPaid;
+    // How much of this payment goes to system penalty charges vs loan
+    const penaltyPortionPaid = Math.min(totalUnpaidPenalty, amountPaid);
 
-// Save payment — amount_paid includes everything (penalty + loan)
-const paymentResult = await client.query(
-  `INSERT INTO payments
-    (loan_id, borrower_id, amount_paid, interest_collected,
-     penalty_amount, payment_date, notes)
-   VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-  [
-    loan_id, borrower_id, amountPaid,
-    parseFloat(interestCollected.toFixed(2)),
-    parseFloat(penaltyPortionPaid.toFixed(2)),
-    payment_date, notes || null
-  ]
-);
+    // Total penalty recorded = system penalty portion + manual penalty from admin
+    const totalPenaltyRecorded = parseFloat(
+      (penaltyPortionPaid + manualPenaltyCollected).toFixed(2)
+    );
 
-// Only mark penalties as paid if this payment covers them
-if (penaltyPortionPaid >= totalUnpaidPenalty - 0.01) {
-  // Full penalty covered — mark all as paid
-  await client.query(
-    `UPDATE penalty_charges SET is_paid = TRUE
-     WHERE loan_id = $1 AND is_paid = FALSE`,
-    [loan_id]
-  );
-} else if (penaltyPortionPaid > 0) {
-  // Partial penalty — mark individual ones as paid until amount runs out
-  const unpaidPenalties = await client.query(
-    `SELECT * FROM penalty_charges
-     WHERE loan_id = $1 AND is_paid = FALSE
-     ORDER BY charge_date ASC`,
-    [loan_id]
-  );
-  let remaining = penaltyPortionPaid;
-  for (const pc of unpaidPenalties.rows) {
-    if (remaining >= parseFloat(pc.amount) - 0.01) {
+    // Save payment record
+    const paymentResult = await client.query(
+      `INSERT INTO payments
+        (loan_id, borrower_id, amount_paid, interest_collected,
+         penalty_amount, payment_date, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [
+        loan_id,
+        borrower_id,
+        amountPaid,
+        parseFloat(interestCollected.toFixed(2)),
+        totalPenaltyRecorded,
+        payment_date,
+        notes || null
+      ]
+    );
+
+    // Mark system penalty charges as paid
+    if (penaltyPortionPaid >= totalUnpaidPenalty - 0.01) {
       await client.query(
-        'UPDATE penalty_charges SET is_paid = TRUE WHERE id = $1',
-        [pc.id]
+        `UPDATE penalty_charges SET is_paid = TRUE WHERE loan_id = $1 AND is_paid = FALSE`,
+        [loan_id]
       );
-      remaining -= parseFloat(pc.amount);
-    } else {
-      break;
+    } else if (penaltyPortionPaid > 0) {
+      const unpaidPenalties = await client.query(
+        `SELECT * FROM penalty_charges
+         WHERE loan_id = $1 AND is_paid = FALSE ORDER BY charge_date ASC`,
+        [loan_id]
+      );
+      let remaining = penaltyPortionPaid;
+      for (const pc of unpaidPenalties.rows) {
+        if (remaining >= parseFloat(pc.amount) - 0.01) {
+          await client.query(
+            'UPDATE penalty_charges SET is_paid = TRUE WHERE id = $1', [pc.id]
+          );
+          remaining -= parseFloat(pc.amount);
+        } else {
+          break;
+        }
+      }
     }
-  }
-}
-    // Check remaining statuses
+
+    // Re-check schedule statuses after marking periods paid
     const stillOverdue = await client.query(
-      `SELECT COUNT(*) FROM payment_schedule
-       WHERE loan_id = $1 AND status = 'overdue'`,
+      `SELECT COUNT(*) FROM payment_schedule WHERE loan_id = $1 AND status = 'overdue'`,
       [loan_id]
     );
     const stillPending = await client.query(
-      `SELECT COUNT(*) FROM payment_schedule
-       WHERE loan_id = $1 AND status = 'pending'`,
+      `SELECT COUNT(*) FROM payment_schedule WHERE loan_id = $1 AND status = 'pending'`,
       [loan_id]
     );
 
     const overdueCount = parseInt(stillOverdue.rows[0].count);
     const pendingCount = parseInt(stillPending.rows[0].count);
     const totalPaidNow = alreadyPaid + amountPaid;
-    const isFullyPaid = totalPaidNow >= totalPayable - 0.01 &&
-      overdueCount === 0 && pendingCount === 0;
+
+    // Get ALL penalties to compute true total owed
+    const allPenaltyForCheck = await client.query(
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM penalty_charges WHERE loan_id = $1`,
+      [loan_id]
+    );
+    const allPenaltyTotal = parseFloat(allPenaltyForCheck.rows[0].total);
+    const trueTotal = totalPayable + allPenaltyTotal;
+
+    const isFullyPaid = totalPaidNow >= trueTotal - 0.01
+      && overdueCount === 0
+      && pendingCount === 0;
 
     if (isFullyPaid) {
       await client.query(
-        'UPDATE loans SET status = $1 WHERE id = $2',
-        ['paid', loan_id]
+        'UPDATE loans SET status = $1 WHERE id = $2', ['paid', loan_id]
       );
       await client.query(
         `UPDATE payment_schedule SET status = 'paid'
@@ -230,13 +254,11 @@ if (penaltyPortionPaid >= totalUnpaidPenalty - 0.01) {
       );
     } else if (overdueCount === 0) {
       await client.query(
-        `UPDATE loans SET status = 'active' WHERE id = $1`,
-        [loan_id]
+        `UPDATE loans SET status = 'active' WHERE id = $1`, [loan_id]
       );
     } else {
       await client.query(
-        `UPDATE loans SET status = 'overdue' WHERE id = $1`,
-        [loan_id]
+        `UPDATE loans SET status = 'overdue' WHERE id = $1`, [loan_id]
       );
     }
 
@@ -282,8 +304,7 @@ router.get('/penalty/:loanId', verifyToken, async (req, res) => {
     `, [loanId]);
 
     const overdueResult = await pool.query(`
-      SELECT *,
-        (${today} - due_date)::integer AS days_overdue
+      SELECT *, (${today} - due_date)::integer AS days_overdue
       FROM payment_schedule
       WHERE loan_id = $1 AND status = 'overdue'
       ORDER BY due_date ASC

@@ -2,13 +2,16 @@ import { useState, useEffect, useRef } from 'react';
 import { useReactToPrint } from 'react-to-print';
 import api from '../utils/api';
 import { formatCurrency, formatDate } from '../utils/formatters';
+import SignaturePad from '../components/SignaturePad';
 
 export default function CashVoucher() {
   const [vouchers, setVouchers] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedVoucher, setSelectedVoucher] = useState(null);
+  const [showViewModal, setShowViewModal] = useState(false);
   const printRef = useRef();
+  const viewPrintRef = useRef();
 
   const today = new Date().toISOString().split('T')[0];
   const [form, setForm] = useState({
@@ -22,6 +25,9 @@ export default function CashVoucher() {
     amount: '',
     approved_by: '',
     received_from: 'MicroLend Lending Corporation',
+    // Signatures
+    by_signature: '',
+    approved_signature: '',
   });
   const [errors, setErrors] = useState({});
 
@@ -47,6 +53,8 @@ export default function CashVoucher() {
     if (!form.payable_to) e.payable_to = 'Required';
     if (!form.amount) e.amount = 'Required';
     if (!form.voucher_date) e.voucher_date = 'Required';
+    if (!form.by_signature) e.by_signature = 'Signature is required';
+    if (!form.approved_signature) e.approved_signature = 'Signature is required';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -65,7 +73,7 @@ export default function CashVoucher() {
         approved_by: form.approved_by,
       });
       fetchVouchers();
-      setForm(f => ({ ...f, payable_to: '', address: '', description: '', amount: '', approved_by: '', place: '' }));
+      setForm(f => ({ ...f, payable_to: '', address: '', description: '', amount: '', approved_by: '', place: '', by_signature: '', approved_signature: '' }));
     } catch (err) {
       alert(err.response?.data?.error || 'Error saving voucher');
     } finally {
@@ -73,14 +81,25 @@ export default function CashVoucher() {
     }
   };
 
+  // ── FIX: use contentRef instead of content() ──
   const handlePrint = useReactToPrint({
-    content: () => printRef.current,
+    contentRef: printRef,
+    documentTitle: `Cash Voucher - ${selectedVoucher?.voucher_number || ''}`,
+  });
+
+  const handleViewPrint = useReactToPrint({
+    contentRef: viewPrintRef,
     documentTitle: `Cash Voucher - ${selectedVoucher?.voucher_number || ''}`,
   });
 
   const printVoucher = (v) => {
     setSelectedVoucher(v);
     setTimeout(() => handlePrint(), 200);
+  };
+
+  const viewVoucher = (v) => {
+    setSelectedVoucher(v);
+    setShowViewModal(true);
   };
 
   return (
@@ -156,6 +175,26 @@ export default function CashVoucher() {
               value={form.approved_by} onChange={e => set('approved_by', e.target.value)} placeholder="Approver name" />
           </div>
 
+          {/* ── SIGNATURES ── */}
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <SignaturePad
+                label="By (Signature)"
+                value={form.by_signature}
+                onChange={v => set('by_signature', v)}
+              />
+              {errors.by_signature && <p className="text-red-500 text-xs mt-1">{errors.by_signature}</p>}
+            </div>
+            <div>
+              <SignaturePad
+                label="Approved (Signature)"
+                value={form.approved_signature}
+                onChange={v => set('approved_signature', v)}
+              />
+              {errors.approved_signature && <p className="text-red-500 text-xs mt-1">{errors.approved_signature}</p>}
+            </div>
+          </div>
+
           <button onClick={handleSubmit} disabled={loading}
             className="w-full bg-blue-700 text-white py-3 rounded-lg text-sm font-bold hover:bg-blue-800 disabled:opacity-60">
             {loading ? 'Saving...' : 'Save Voucher ↗'}
@@ -212,11 +251,17 @@ export default function CashVoucher() {
             </div>
 
             <div className="flex justify-between text-xs mt-6">
-              <div className="text-center">
-                <div className="border-t border-gray-800 mt-6 pt-1 min-w-28">By:</div>
+              <div className="text-center min-w-28">
+                {form.by_signature
+                  ? <img src={form.by_signature} alt="by-sig" className="h-10 mx-auto mb-1 object-contain" />
+                  : <div className="h-10" />}
+                <div className="border-t border-gray-800 pt-1">By:</div>
               </div>
-              <div className="text-center">
-                <div className="border-t border-gray-800 mt-6 pt-1 min-w-28">Approved: {form.approved_by}</div>
+              <div className="text-center min-w-28">
+                {form.approved_signature
+                  ? <img src={form.approved_signature} alt="approved-sig" className="h-10 mx-auto mb-1 object-contain" />
+                  : <div className="h-10" />}
+                <div className="border-t border-gray-800 pt-1">Approved: {form.approved_by}</div>
               </div>
             </div>
           </div>
@@ -279,7 +324,7 @@ export default function CashVoucher() {
               <th className="px-5 py-3 text-left text-sm font-semibold text-gray-500">Category</th>
               <th className="px-5 py-3 text-left text-sm font-semibold text-gray-500">Description</th>
               <th className="px-5 py-3 text-right text-sm font-semibold text-gray-500">Amount</th>
-              <th className="px-5 py-3 text-center text-sm font-semibold text-gray-500">Print</th>
+              <th className="px-5 py-3 text-center text-sm font-semibold text-gray-500">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -295,16 +340,106 @@ export default function CashVoucher() {
                 <td className="px-5 py-3 text-sm text-gray-500">{v.description || '—'}</td>
                 <td className="px-5 py-3 text-right text-sm font-bold text-red-600">{formatCurrency(v.amount)}</td>
                 <td className="px-5 py-3 text-center">
-                  <button onClick={() => printVoucher(v)}
-                    className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded font-medium text-gray-700">
-                    🖨️ Print
-                  </button>
+                  <div className="flex items-center justify-center gap-2">
+                    <button onClick={() => viewVoucher(v)}
+                      className="text-xs bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded font-medium text-blue-700">
+                      👁 View
+                    </button>
+                    <button onClick={() => printVoucher(v)}
+                      className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded font-medium text-gray-700">
+                      🖨️ Print
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* ── VIEW VOUCHER MODAL ── */}
+      {showViewModal && selectedVoucher && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-screen overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 sticky top-0 bg-white z-10">
+              <div>
+                <h3 className="text-base font-bold text-gray-800">Cash Voucher</h3>
+                <p className="text-xs text-gray-400">{selectedVoucher.voucher_number}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { setTimeout(() => handleViewPrint(), 100); }}
+                  className="text-xs bg-blue-700 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-blue-800"
+                >
+                  🖨️ Print
+                </button>
+                <button onClick={() => setShowViewModal(false)}
+                  className="text-gray-400 hover:text-gray-700 text-2xl leading-none ml-2">
+                  ×
+                </button>
+              </div>
+            </div>
+
+            {/* Voucher layout */}
+            <div className="p-6" ref={viewPrintRef}>
+              <div className="border-2 border-gray-800 p-5 font-mono text-sm">
+                <div className="text-center text-xl font-bold mb-1 tracking-widest">CASH VOUCHER</div>
+                <div className="flex justify-between text-xs mb-4">
+                  <div>
+                    <div>R.C. No.: <span className="font-bold">{selectedVoucher.voucher_number}</span></div>
+                    <div>Date: <span className="font-bold">{formatDate(selectedVoucher.voucher_date)}</span></div>
+                  </div>
+                  <div className="text-right">
+                    <div>No. ________</div>
+                    <div>Date ________</div>
+                  </div>
+                </div>
+
+                <div className="mb-3">
+                  <div>Paid to: <span className="font-bold border-b border-gray-800 inline-block min-w-32">{selectedVoucher.payable_to}</span></div>
+                </div>
+
+                <table className="w-full border border-gray-800 mb-3 text-xs">
+                  <thead>
+                    <tr className="border-b border-gray-800">
+                      <th className="border-r border-gray-800 px-2 py-1 text-left">PARTICULARS</th>
+                      <th className="px-2 py-1 text-right">AMOUNT</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-gray-800">
+                      <td className="border-r border-gray-800 px-2 py-6">{selectedVoucher.description || ''}</td>
+                      <td className="px-2 py-6 text-right">{formatCurrency(selectedVoucher.amount)}</td>
+                    </tr>
+                    <tr>
+                      <td className="border-r border-gray-800 px-2 py-1 font-bold">Total Php</td>
+                      <td className="px-2 py-1 text-right font-bold">{formatCurrency(selectedVoucher.amount)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <div className="text-xs mb-4">
+                  <div>Received from <span className="font-bold">MicroLend Lending Corporation</span></div>
+                  <div className="mt-1">PESOS <span className="border-b border-gray-800 inline-block min-w-24">{formatCurrency(selectedVoucher.amount)}</span> (Php <span className="font-bold">{selectedVoucher.amount}</span>)</div>
+                  <div className="mt-1 text-xs text-gray-500">in full payment of amount described above.</div>
+                </div>
+
+                <div className="flex justify-between text-xs mt-6">
+                  <div className="text-center min-w-28">
+                    <div className="h-10" />
+                    <div className="border-t border-gray-800 pt-1">By:</div>
+                  </div>
+                  <div className="text-center min-w-28">
+                    <div className="h-10" />
+                    <div className="border-t border-gray-800 pt-1">Approved: {selectedVoucher.approved_by || '___________'}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

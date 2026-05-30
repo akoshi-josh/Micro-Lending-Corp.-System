@@ -119,4 +119,48 @@ router.get('/accounts', verifyToken, async (req, res) => {
   }
 });
 
+// GET /api/ledger/bank
+router.get('/bank', verifyToken, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT * FROM bank_transactions
+      ORDER BY transaction_date DESC, id DESC
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error.' });
+  }
+});
+
+// POST /api/ledger/bank
+router.post('/bank', verifyToken, async (req, res) => {
+  const { description, amount, type, transaction_date, notes } = req.body;
+  if (!description || !amount || !type || !transaction_date) {
+    return res.status(400).json({ error: 'All fields are required.' });
+  }
+  try {
+    const result = await pool.query(`
+      INSERT INTO bank_transactions
+        (description, amount, type, transaction_date, notes)
+      VALUES ($1, $2, $3, $4, $5) RETURNING *
+    `, [description, amount, type, transaction_date, notes || null]);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error.' });
+  }
+});
+
+// DELETE /api/ledger/bank/:id
+router.delete('/bank/:id', verifyToken, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM bank_transactions WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error.' });
+  }
+});
+
 module.exports = router;
